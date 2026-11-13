@@ -1,0 +1,90 @@
+
+@startuml PongGame-C2
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_TOP_DOWN()
+
+' Apresentação: espaçamento, tipografia e paleta.
+skinparam backgroundColor #F8FAFC
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundcorner 12
+skinparam nodesep 55
+skinparam ranksep 75
+skinparam padding 12
+skinparam ArrowColor #64748B
+skinparam ArrowFontColor #475569
+skinparam ArrowFontSize 11
+skinparam titleFontColor #0F172A
+skinparam titleFontSize 24
+skinparam legendBackgroundColor #FFFFFF
+skinparam legendBorderColor #CBD5E1
+
+UpdateElementStyle("person", $bgColor="#334155", $fontColor="#FFFFFF", $borderColor="#1E293B")
+UpdateElementStyle("container", $bgColor="#EFF6FF", $fontColor="#1E3A5F", $borderColor="#60A5FA")
+
+title Pong Game - C2: Container Diagram
+
+Person(player, "Player", "Usuário que joga Pong online.")
+
+System_Boundary(pong, "Pong Game") {
+
+    Container(frontend, "Frontend", "React + TypeScript", "Interface do jogo, autenticação, matchmaking e estatísticas.")
+
+    Container(gateway, "API Gateway", "Nginx", "Ponto de entrada para requisições HTTP. Roteia chamadas para os serviços REST.")
+
+    Container(auth, "Auth Service", ".NET", "Cadastro, autenticação, emissão e renovação de JWT.")
+    ContainerDb(authDb, "Auth Database", "PostgreSQL", "Credenciais e informações de autenticação.")
+
+    Container(playerService, "Player Service", ".NET", "Perfis, estatísticas e histórico de partidas.")
+    ContainerDb(playerDb, "Player Database", "PostgreSQL", "Perfis, estatísticas e histórico dos jogadores.")
+
+    Container(matchmaking, "Matchmaking Service", ".NET", "Gerencia a fila de jogadores e realiza o pareamento.")
+    ContainerDb(redis, "Redis", "Redis", "Fila de matchmaking e estados temporários.")
+
+    Container(game, "Game Service", "Rust", "Gerencia sessões, executa a lógica do Pong e transmite estados via WebSocket.")
+
+    ContainerQueue(rabbit, "Message Broker", "RabbitMQ", "Transporta comandos e eventos entre os microserviços.")
+}
+
+' Restrições invisíveis organizam os serviços e seus recursos em colunas.
+Lay_D(player, frontend)
+Lay_D(frontend, gateway)
+Lay_D(gateway, playerService)
+Lay_R(auth, playerService)
+Lay_R(playerService, matchmaking)
+Lay_R(matchmaking, game)
+
+Lay_D(auth, authDb)
+Lay_D(playerService, playerDb)
+Lay_D(matchmaking, redis)
+Lay_D(game, rabbit)
+Lay_R(authDb, playerDb)
+Lay_R(playerDb, redis)
+Lay_R(redis, rabbit)
+
+Rel(player, frontend, "Utiliza", "HTTPS")
+
+Rel(frontend, gateway, "Requisições HTTP", "HTTPS")
+Rel(frontend, game, "Conexão direta para comandos e estados do jogo", "WSS")
+
+Rel(gateway, auth, "Autenticação", "HTTP / REST")
+Rel(gateway, playerService, "Perfis, estatísticas e histórico", "HTTP / REST")
+Rel(gateway, matchmaking, "Entrada e saída da fila", "HTTP / REST")
+
+Rel(auth, authDb, "Lê e grava")
+Rel(playerService, playerDb, "Lê e grava")
+Rel(matchmaking, redis, "Gerencia filas e estados")
+
+Rel(matchmaking, rabbit, "Publica comandos de criação", "AMQP")
+Rel(rabbit, game, "Entrega comandos de criação", "AMQP")
+
+Rel(game, rabbit, "Publica eventos de partidas", "AMQP")
+Rel(rabbit, playerService, "Entrega resultados", "AMQP")
+Rel(rabbit, matchmaking, "Entrega eventos", "AMQP")
+
+SHOW_LEGEND()
+
+@enduml
