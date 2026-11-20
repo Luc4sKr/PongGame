@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PongGame.Auth.Api/PongGame.Auth.Api.csproj" />
+    <Project Path="src/PongGame.Auth.Application/PongGame.Auth.Application.csproj" />
+    <Project Path="src/PongGame.Auth.Domain/PongGame.Auth.Domain.csproj" />
+    <Project Path="src/PongGame.Auth.Infrastructure/PongGame.Auth.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PongGame.Auth.Domain.Tests/PongGame.Auth.Domain.Tests.csproj" />
+  </Folder>
+</Solution>
