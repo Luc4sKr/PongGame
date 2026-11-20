@@ -1,0 +1,60 @@
+services:
+  gateway:
+    image: nginx:stable-alpine
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./gateway/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - auth
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/auth/jwks"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      gateway_net:
+        ipv4_address: 172.29.90.2
+
+  auth:
+    image: ponggame/auth:local
+    build: ./services/PongGame.Auth
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Gateway__Address: 172.29.90.2
+      ConnectionStrings__AuthDb: Host=postgres;Database=pong_auth;Username=pong_auth
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - gateway_net
+      - database_net
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pong_auth
+      POSTGRES_USER: pong_auth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+    volumes:
+      - auth_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "pong_auth", "-d", "pong_auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - database_net
+
+networks:
+  gateway_net:
+    ipam:
+      config:
+        - subnet: 172.29.90.0/28
+          ip_range: 172.29.90.8/29
+  database_net:
+    internal: true
+
+volumes:
+  auth_data:
