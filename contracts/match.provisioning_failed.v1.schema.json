@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponggame.local/contracts/match.provisioning_failed.v1.schema.json",
+  "title": "match.provisioning_failed (v1)",
+  "description": "Published by Game Service when match provisioning fails (e.g., unstable arena dependency failure). Triggers saga compensation in Matchmaking Service.",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "match.provisioning_failed" },
+        "version": { "const": 1 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matchId", "reason"],
+          "properties": {
+            "matchId": { "type": "string", "format": "uuid" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  ]
+}

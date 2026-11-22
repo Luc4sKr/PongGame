@@ -24,4 +24,11 @@ public static class DependencyInjection
         var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         await db.Database.MigrateAsync();
     }
+
+    public static async Task<bool> CanConnectAuthDatabaseAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.Database.CanConnectAsync(ct);
+    }
 }

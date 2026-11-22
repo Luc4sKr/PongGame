@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponggame.local/contracts/match.finished.v1.schema.json",
+  "title": "match.finished (v1)",
+  "description": "Published once by Game Service when a Pong match completes. Consumed independently by both Player Service (stats & history) and Matchmaking Service (slot & lock release).",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "match.finished" },
+        "version": { "const": 1 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "matchId",
+            "player1Id",
+            "player1Username",
+            "player1Score",
+            "player2Id",
+            "player2Username",
+            "player2Score",
+            "winnerId",
+            "reason",
+            "durationSeconds",
+            "finishedAt"
+          ],
+          "properties": {
+            "matchId": { "type": "string", "format": "uuid" },
+            "player1Id": { "type": "string", "format": "uuid" },
+            "player1Username": { "type": "string", "minLength": 3, "maxLength": 32 },
+            "player1Score": { "type": "integer", "minimum": 0 },
+            "player2Id": { "type": "string", "format": "uuid" },
+            "player2Username": { "type": "string", "minLength": 3, "maxLength": 32 },
+            "player2Score": { "type": "integer", "minimum": 0 },
+            "winnerId": {
+              "type": ["string", "null"],
+              "format": "uuid"
+            },
+            "reason": {
+              "type": "string",
+              "enum": ["SCORE_LIMIT", "FORFEIT", "DISCONNECT"]
+            },
+            "durationSeconds": { "type": "integer", "minimum": 0 },
+            "finishedAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    }
+  ]
+}

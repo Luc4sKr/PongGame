@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponggame.local/contracts/match.ready.v1.schema.json",
+  "title": "match.ready (v1)",
+  "description": "Published by Game Service when a match room has been provisioned in distributed memory and is ready for WebSocket connections.",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "match.ready" },
+        "version": { "const": 1 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matchId", "wsPath", "provisionedBy"],
+          "properties": {
+            "matchId": { "type": "string", "format": "uuid" },
+            "wsPath": { "type": "string", "minLength": 1 },
+            "provisionedBy": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  ]
+}

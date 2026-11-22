@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponggame.local/contracts/envelope.schema.json",
+  "title": "PongGame Message Envelope",
+  "description": "Standard envelope required for every event and command exchanged through RabbitMQ.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "messageId",
+    "correlationId",
+    "type",
+    "version",
+    "occurredAt",
+    "payload"
+  ],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier of this message, used for idempotent processing."
+    },
+    "correlationId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Correlation ID tracing the distributed flow across services."
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Logical event or command type (e.g., match.created, match.ready, match.finished)."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema version of the payload."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 timestamp when the message was produced."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event-specific payload matching the corresponding contract schema."
+    }
+  }
+}

@@ -1,11 +1,9 @@
-
 @startuml PongGame-C2
 
 !include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
 
 LAYOUT_TOP_DOWN()
 
-' Apresentação: espaçamento, tipografia e paleta.
 skinparam backgroundColor #F8FAFC
 skinparam defaultFontName Segoe UI
 skinparam defaultFontSize 13
@@ -25,66 +23,58 @@ skinparam legendBorderColor #CBD5E1
 UpdateElementStyle("person", $bgColor="#334155", $fontColor="#FFFFFF", $borderColor="#1E293B")
 UpdateElementStyle("container", $bgColor="#EFF6FF", $fontColor="#1E3A5F", $borderColor="#60A5FA")
 
-title Pong Game - C2: Container Diagram
+title Pong Game - Distributed Architecture (C2)
 
-Person(player, "Player", "Usuário que joga Pong online.")
+Person(player, "Player", "Plays real-time Pong online via HTTP & WebSocket.")
 
-System_Boundary(pong, "Pong Game") {
+System_Boundary(pong, "Pong Game Distributed System") {
 
-    Container(frontend, "Frontend", "React + TypeScript", "Interface do jogo, autenticação, matchmaking e estatísticas.")
+    Container(frontend, "Frontend", "React + TypeScript (Vite)", "Auth, matchmaking lobby, player stats, leaderboard & real-time Canvas Pong arena.")
+    Container(gateway, "API Gateway", "Nginx", "Serves SPA (/), routes HTTP APIs & load-balances WebSockets across Game replicas.")
 
-    Container(gateway, "API Gateway", "Nginx", "Ponto de entrada para requisições HTTP. Roteia chamadas para os serviços REST.")
+    Container(auth, "Auth Service", "C# / .NET 10", "Registration, login, refresh, recovery. Signs JWTs via AWS KMS asymmetric RSA key.")
+    ContainerDb(authDb, "Auth Database", "PostgreSQL 17", "Isolated credentials & refresh sessions.")
 
-    Container(auth, "Auth Service", ".NET", "Cadastro, autenticação, emissão e renovação de JWT.")
-    ContainerDb(authDb, "Auth Database", "PostgreSQL", "Credenciais e informações de autenticação.")
+    Container(playerService, "Player Service", "Java 21 / Spring Boot", "Player profiles, ELO statistics, match history, transactional idempotency.")
+    ContainerDb(playerDb, "Player Database", "PostgreSQL 17", "Isolated profiles, matches & processed_messages.")
 
-    Container(playerService, "Player Service", ".NET", "Perfis, estatísticas e histórico de partidas.")
-    ContainerDb(playerDb, "Player Database", "PostgreSQL", "Perfis, estatísticas e histórico dos jogadores.")
+    Container(matchmaking, "Matchmaking Service", "Java 21 / Spring Boot", "Async 202 queue API, Redis Lua pairing & slot concurrency control, Saga compensation.")
 
-    Container(matchmaking, "Matchmaking Service", ".NET", "Gerencia a fila de jogadores e realiza o pareamento.")
-    ContainerDb(redis, "Redis", "Redis", "Fila de matchmaking e estados temporários.")
+    Container(game, "Game Service (x2+ replicas)", "Go 1.24", "WebSocket real-time Pong engine, competing consumers, lease failover, unstable dependency simulator.")
 
-    Container(game, "Game Service", "Rust", "Gerencia sessões, executa a lógica do Pong e transmite estados via WebSocket.")
+    ContainerQueue(rabbit, "Message Broker", "RabbitMQ 4", "Topic exchange (pong.events) + DLX/DLQ for event-driven choreography.")
 
-    ContainerQueue(rabbit, "Message Broker", "RabbitMQ", "Transporta comandos e eventos entre os microserviços.")
+    System_Boundary(cloud, "AWS Cloud Services (MiniStack / Terraform)") {
+        Container(kms, "AWS KMS", "Asymmetric RSA-2048", "Private key signing in Auth; cached GetPublicKey verification across services.")
+        ContainerDb(elasticache, "AWS ElastiCache (Redis)", "Redis 7", "Matchmaking queue/locks, distributed game state & Pub/Sub, Player cache.")
+        Container(ssm, "AWS SSM Parameter Store", "Parameters", "Centralized runtime configuration provisioned via Terraform.")
+    }
 }
 
-' Restrições invisíveis organizam os serviços e seus recursos em colunas.
-Lay_D(player, frontend)
-Lay_D(frontend, gateway)
-Lay_D(gateway, playerService)
-Lay_R(auth, playerService)
-Lay_R(playerService, matchmaking)
-Lay_R(matchmaking, game)
+Rel(player, gateway, "Browser SPA, REST & real-time Pong", "HTTP / WS")
 
-Lay_D(auth, authDb)
-Lay_D(playerService, playerDb)
-Lay_D(matchmaking, redis)
-Lay_D(game, rabbit)
-Lay_R(authDb, playerDb)
-Lay_R(playerDb, redis)
-Lay_R(redis, rabbit)
+Rel(gateway, frontend, "/ (SPA assets)", "HTTP")
 
-Rel(player, frontend, "Utiliza", "HTTPS")
+Rel(gateway, auth, "/api/auth/*", "HTTP")
+Rel(gateway, playerService, "/api/players/*", "HTTP")
+Rel(gateway, matchmaking, "/api/matchmaking/*", "HTTP")
+Rel(gateway, game, "/api/game/* & /ws/game/* (LB)", "HTTP / WS")
 
-Rel(frontend, gateway, "Requisições HTTP", "HTTPS")
-Rel(frontend, game, "Conexão direta para comandos e estados do jogo", "WSS")
+Rel(auth, authDb, "Reads & writes")
+Rel(playerService, playerDb, "Reads & writes")
 
-Rel(gateway, auth, "Autenticação", "HTTP / REST")
-Rel(gateway, playerService, "Perfis, estatísticas e histórico", "HTTP / REST")
-Rel(gateway, matchmaking, "Entrada e saída da fila", "HTTP / REST")
+Rel(auth, kms, "Sign (RSASSA_PKCS1_V1_5_SHA_256) & GetPublicKey")
+Rel(playerService, kms, "GetPublicKey (cached)")
+Rel(matchmaking, kms, "GetPublicKey (cached)")
+Rel(game, kms, "GetPublicKey (cached)")
 
-Rel(auth, authDb, "Lê e grava")
-Rel(playerService, playerDb, "Lê e grava")
-Rel(matchmaking, redis, "Gerencia filas e estados")
+Rel(playerService, elasticache, "Caches profiles")
+Rel(matchmaking, elasticache, "Queues, Lua locks, outbox")
+Rel(game, elasticache, "Distributed state, Pub/Sub, leases, outbox")
 
-Rel(matchmaking, rabbit, "Publica comandos de criação", "AMQP")
-Rel(rabbit, game, "Entrega comandos de criação", "AMQP")
-
-Rel(game, rabbit, "Publica eventos de partidas", "AMQP")
-Rel(rabbit, playerService, "Entrega resultados", "AMQP")
-Rel(rabbit, matchmaking, "Entrega eventos", "AMQP")
+Rel(matchmaking, rabbit, "Publishes match.created, match.cancel; consumes ready/failed/finished", "AMQP")
+Rel(game, rabbit, "Consumes match.created/cancel; publishes ready/failed/finished", "AMQP")
+Rel(playerService, rabbit, "Consumes match.finished (multi-consumer event)", "AMQP")
 
 SHOW_LEGEND()
-
 @enduml

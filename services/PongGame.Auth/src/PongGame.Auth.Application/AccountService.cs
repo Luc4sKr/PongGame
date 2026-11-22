@@ -26,7 +26,7 @@ public sealed class AccountService(IAccountRepository accounts, IPasswordHasher 
         var refreshToken = NewSecret();
         var session = account.OpenSession(HashSecret(refreshToken), clock.GetUtcNow());
         return await accounts.TryOpenSessionAsync(session, ct)
-            ? tokens.Issue(account.Id, account.Username.Value, refreshToken)
+            ? await tokens.IssueAsync(account.Id, account.Username.Value, refreshToken, ct)
             : null;
     }
 
@@ -41,7 +41,7 @@ public sealed class AccountService(IAccountRepository accounts, IPasswordHasher 
         if (replacement is null || !await accounts.TryReplaceSessionAsync(current, replacement, ct))
             return null;
 
-        return tokens.Issue(current.AccountId, current.Account.Username.Value, refresh);
+        return await tokens.IssueAsync(current.AccountId, current.Account.Username.Value, refresh, ct);
     }
 
     public async Task<RecoveryResult?> RecoverAsync(string username, string recoveryCode, string newPassword, CancellationToken ct)

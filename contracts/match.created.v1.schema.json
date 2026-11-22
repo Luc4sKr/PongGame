@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponggame.local/contracts/match.created.v1.schema.json",
+  "title": "match.created (v1)",
+  "description": "Published by Matchmaking Service when two players are paired and an arena slot is reserved. Consumed by Game Service to provision a Pong match.",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "match.created" },
+        "version": { "const": 1 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matchId", "player1", "player2", "winningScore", "provisionDeadline"],
+          "properties": {
+            "matchId": { "type": "string", "format": "uuid" },
+            "player1": {
+              "type": "object",
+              "required": ["playerId", "username", "ticketId"],
+              "properties": {
+                "playerId": { "type": "string", "format": "uuid" },
+                "username": { "type": "string", "minLength": 3, "maxLength": 32 },
+                "ticketId": { "type": "string", "format": "uuid" }
+              }
+            },
+            "player2": {
+              "type": "object",
+              "required": ["playerId", "username", "ticketId"],
+              "properties": {
+                "playerId": { "type": "string", "format": "uuid" },
+                "username": { "type": "string", "minLength": 3, "maxLength": 32 },
+                "ticketId": { "type": "string", "format": "uuid" }
+              }
+            },
+            "winningScore": { "type": "integer", "minimum": 1, "maximum": 21 },
+            "provisionDeadline": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    }
+  ]
+}

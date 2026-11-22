@@ -30,15 +30,22 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 var tokens = app.Services.GetRequiredService<TokenIssuer>();
+await tokens.InitializeAsync();
 await app.Services.MigrateAuthDatabaseAsync();
 
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
-app.UseHttpsRedirection();
 app.UseRouting();
 app.UseRateLimiter();
 app.MapControllers();
 app.MapGet("/api/auth/jwks", () => tokens.PublicKeys);
+app.MapGet("/health", async (IServiceProvider sp, CancellationToken ct) =>
+{
+    var healthy = await sp.CanConnectAuthDatabaseAsync(ct);
+    return healthy
+        ? Results.Ok(new { status = "UP", service = "auth-service" })
+        : Results.Json(new { status = "DOWN", service = "auth-service" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
 if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 

@@ -1,0 +1,50 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: matchmaking-service
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:pong}
+    password: ${RABBITMQ_PASSWORD:pong_secret}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+        prefetch: 10
+        retry:
+          enabled: true
+          initial-interval: 500ms
+          max-attempts: 3
+          multiplier: 2.0
+          max-interval: 2000ms
+        missing-queues-fatal: false
+
+app:
+  aws:
+    region: ${AWS_REGION:us-east-1}
+    endpoint-url: ${AWS_ENDPOINT_URL:}
+    access-key: ${AWS_ACCESS_KEY_ID:000000000000}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+  kms:
+    key-id: ${KMS_KEY_ID:alias/ponggame-jwt-signing}
+    cache-ttl-seconds: ${KMS_PUBLIC_KEY_CACHE_TTL_SECONDS:300}
+  jwt:
+    issuer: ${JWT_ISSUER:PongGame.Auth}
+    audience: ${JWT_AUDIENCE:PongGame}
+  elasticache:
+    cluster-id: ${ELASTICACHE_CLUSTER_ID:ponggame-redis}
+    redis-host-override: ${REDIS_HOST:}
+    redis-port-override: ${REDIS_PORT:0}
+  matchmaking:
+    max-concurrent-matches: ${MATCHMAKING_MAX_CONCURRENT_MATCHES:10}
+    winning-score: ${MATCHMAKING_WINNING_SCORE:5}
+    provisioning-timeout-ms: ${MATCHMAKING_PROVISIONING_TIMEOUT_MS:10000}
+  rabbitmq:
+    events-exchange: ${RABBITMQ_EVENTS_EXCHANGE:pong.events}
+    dlx-exchange: ${RABBITMQ_DLX_EXCHANGE:pong.dlx}
+    match-ready-queue: ${MATCHMAKING_MATCH_READY_QUEUE:matchmaking.match.ready}
+    match-failed-queue: ${MATCHMAKING_MATCH_FAILED_QUEUE:matchmaking.match.failed}
+    match-finished-queue: ${MATCHMAKING_MATCH_FINISHED_QUEUE:matchmaking.match.finished}

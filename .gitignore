@@ -424,3 +424,20 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Java / Maven
+target/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+
+# Environment files
+.env
+
+# Node / Frontend
+node_modules/
+frontend/dist/

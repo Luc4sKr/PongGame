@@ -10,7 +10,7 @@ public interface IPasswordHasher
 
 public interface ITokenIssuer
 {
-    TokenPair Issue(Guid userId, string username, string refreshToken);
+    Task<TokenPair> IssueAsync(Guid userId, string username, string refreshToken, CancellationToken ct = default);
 }
 
 public sealed record RegisteredAccount(Guid UserId, string Username, string RecoveryCode);

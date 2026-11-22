@@ -1,0 +1,125 @@
+asyncapi: 3.0.0
+info:
+  title: PongGame Distributed Messaging Contracts
+  version: 1.0.0
+  description: |
+    Event-driven messaging contracts exchanged over RabbitMQ (topic exchange `pong.events`,
+    dead-letter exchange `pong.dlx`) between Matchmaking Service, Game Service, and Player Service.
+    Every message uses the standard envelope defined in `envelope.schema.json`.
+servers:
+  rabbitmq:
+    host: rabbitmq:5672
+    protocol: amqp
+    description: RabbitMQ message broker (configurable via RABBITMQ_HOST / RABBITMQ_PORT)
+
+channels:
+  matchCreated:
+    address: match.created
+    messages:
+      matchCreatedMessage:
+        $ref: '#/components/messages/MatchCreated'
+  matchReady:
+    address: match.ready
+    messages:
+      matchReadyMessage:
+        $ref: '#/components/messages/MatchReady'
+  matchProvisioningFailed:
+    address: match.provisioning_failed
+    messages:
+      matchProvisioningFailedMessage:
+        $ref: '#/components/messages/MatchProvisioningFailed'
+  matchCancel:
+    address: match.cancel
+    messages:
+      matchCancelMessage:
+        $ref: '#/components/messages/MatchCancel'
+  matchFinished:
+    address: match.finished
+    messages:
+      matchFinishedMessage:
+        $ref: '#/components/messages/MatchFinished'
+
+operations:
+  publishMatchCreated:
+    action: send
+    channel:
+      $ref: '#/channels/matchCreated'
+    summary: Matchmaking Service publishes when two players are paired and an arena slot is reserved.
+  consumeMatchCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/matchCreated'
+    summary: Game Service (competing replicas on queue `game.match.created`) provisions the Pong match in ElastiCache.
+  publishMatchReady:
+    action: send
+    channel:
+      $ref: '#/channels/matchReady'
+    summary: Game Service publishes after initializing match state in distributed memory.
+  consumeMatchReady:
+    action: receive
+    channel:
+      $ref: '#/channels/matchReady'
+    summary: Matchmaking Service (queue `matchmaking.match.ready`) marks tickets READY or emits match.cancel if expired.
+  publishMatchProvisioningFailed:
+    action: send
+    channel:
+      $ref: '#/channels/matchProvisioningFailed'
+    summary: Game Service publishes when arena provisioning fails (triggers saga compensation).
+  consumeMatchProvisioningFailed:
+    action: receive
+    channel:
+      $ref: '#/channels/matchProvisioningFailed'
+    summary: Matchmaking Service (queue `matchmaking.match.failed`) compensates by releasing arena slot and locks.
+  publishMatchCancel:
+    action: send
+    channel:
+      $ref: '#/channels/matchCancel'
+    summary: Matchmaking Service publishes when a match times out or receives a late ready event.
+  consumeMatchCancel:
+    action: receive
+    channel:
+      $ref: '#/channels/matchCancel'
+    summary: Game Service (queue `game.match.cancel`) cancels and cleans up the match in distributed memory.
+  publishMatchFinished:
+    action: send
+    channel:
+      $ref: '#/channels/matchFinished'
+    summary: Game Service publishes once when a match finishes.
+  consumeMatchFinishedByPlayer:
+    action: receive
+    channel:
+      $ref: '#/channels/matchFinished'
+    summary: Player Service (queue `player.match.finished`) persists stats & match history with transactional idempotency.
+  consumeMatchFinishedByMatchmaking:
+    action: receive
+    channel:
+      $ref: '#/channels/matchFinished'
+    summary: Matchmaking Service (queue `matchmaking.match.finished`) releases arena slot and player locks.
+
+components:
+  messages:
+    MatchCreated:
+      name: MatchCreated
+      contentType: application/json
+      payload:
+        $ref: './match.created.v1.schema.json'
+    MatchReady:
+      name: MatchReady
+      contentType: application/json
+      payload:
+        $ref: './match.ready.v1.schema.json'
+    MatchProvisioningFailed:
+      name: MatchProvisioningFailed
+      contentType: application/json
+      payload:
+        $ref: './match.provisioning_failed.v1.schema.json'
+    MatchCancel:
+      name: MatchCancel
+      contentType: application/json
+      payload:
+        $ref: './match.cancel.v1.schema.json'
+    MatchFinished:
+      name: MatchFinished
+      contentType: application/json
+      payload:
+        $ref: './match.finished.v1.schema.json'

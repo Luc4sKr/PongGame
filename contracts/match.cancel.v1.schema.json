@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponggame.local/contracts/match.cancel.v1.schema.json",
+  "title": "match.cancel (v1)",
+  "description": "Published by Matchmaking Service as a compensation command (e.g., provisioning timeout / late response) instructing Game Service to cancel and clean up a match.",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "match.cancel" },
+        "version": { "const": 1 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matchId", "reason"],
+          "properties": {
+            "matchId": { "type": "string", "format": "uuid" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  ]
+}
