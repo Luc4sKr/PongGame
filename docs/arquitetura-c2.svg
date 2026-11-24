@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="1116" viewBox="0 0 1600 1116" role="img" aria-labelledby="title description" lang="pt-BR">
+<title id="title">PongGame — Diagrama de contêineres C4, nível 2</title>
+<desc id="description">O jogador usa uma SPA React. O gateway Nginx encaminha as requisições ao servidor estático e a quatro serviços. Uma matriz identifica as relações dos serviços com os dois PostgreSQL, o Redis, o RabbitMQ e o MiniStack.</desc>
+<defs>
+<style>
+text {font-family:"Segoe UI",Arial,sans-serif;fill:#16374b}
+.over,.eyebrow,.tag,.operation {font-size:13px;font-weight:700;letter-spacing:1.3px}
+.over,.tag,.operation {fill:#126c61}
+.title {font-size:46px;font-weight:700;letter-spacing:-1.5px}
+.heading {font-size:24px;font-weight:700;letter-spacing:-.5px}
+.service {font-size:25px;font-weight:700;letter-spacing:-.5px}
+.resource {font-size:19px;font-weight:700}
+.body,.desc,.edge,.tech,.meta {font-size:16px}
+.body,.desc {fill:#344f5d}
+.edge,.meta {fill:#536978}.edge {font-size:15px}
+.tech {fill:#3f6274;font-size:15px}
+.code,.event {font-family:Consolas,"Liberation Mono",monospace;font-size:15px;fill:#294e64}
+.event {fill:#604c22}
+.operation {font-size:11px;fill:#805b16;letter-spacing:1px}
+.dash {font-size:19px;fill:#92a5ac}
+.white {fill:white}.light {fill:#d3e6ec}.eyebrow {fill:#577080}
+</style>
+<marker id="arrow" markerWidth="7" markerHeight="7" refX="6.2" refY="3.5" orient="auto" viewBox="0 0 7 7"><path d="M0 0L7 3.5L0 7Z" fill="#42667b"/></marker>
+<symbol id="browser" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20M6 6.5h.1m3 0h.1"/></symbol>
+<symbol id="gateway" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h6m0 0 5-7h8M8 12h13M8 12l5 7h8m-3-17 3 3-3 3m0 1 3 3-3 3m0 1 3 3-3 3"/></symbol>
+<symbol id="static" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 7h.1M7 17.5h.1m4-10.5h6m-6 10.5h6"/></symbol>
+<symbol id="person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M3.5 21v-2a8.5 8.5 0 0 1 17 0v2z"/></symbol>
+<symbol id="identity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6q0 7-8 11-8-4-8-11V5z"/><path d="M8.5 11.5l2.5 2.5 4.5-5"/></symbol>
+<symbol id="player" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 17v-5h3v5zm6 0V5h3v12zm6 0V9h3v8z"/></symbol>
+<symbol id="pair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5h5q4 0 5 4t5 4h5m-4-4 4 4-4 4M2 20h4q4 0 6-5M14 6q2-2 6-2"/></symbol>
+<symbol id="pong" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="3"/><path d="M6 8v6m12-3v6m-6-12v2m0 3v2m0 3v2"/><circle cx="15.2" cy="9" r=".7"/></symbol>
+<symbol id="db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8.5" ry="3"/><path d="M3.5 5v13c0 4 17 4 17 0V5M3.5 11c0 4 17 4 17 0"/></symbol>
+<symbol id="redis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7l10-5 10 5-10 5zM2 12l10 5 10-5M2 17l10 5 10-5"/></symbol>
+<symbol id="broker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="5" height="7" rx="1"/><rect x="17" y="2" width="5" height="6" rx="1"/><rect x="17" y="16" width="5" height="6" rx="1"/><path d="M7 11.5h5V5h5m-5 6.5V19h5"/></symbol>
+<symbol id="cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19a5 5 0 0 1-1-9 7 7 0 0 1 13-2 5.5 5.5 0 0 1 0 11z"/></symbol>
+</defs>
+<rect x="0" y="0" width="1600" height="1116" rx="0" fill="#f2f6f5" stroke="none" />
+<rect x="0" y="0" width="1600" height="7" rx="0" fill="#126c61" stroke="none" />
+<text x="48" y="49" class="over" >ARQUITETURA DE SOFTWARE   /   C4 • NÍVEL 2</text>
+<text x="46" y="103" class="title" >PongGame</text>
+<text x="48" y="137" class="meta" >Diagrama de contêineres do ambiente local definido no Docker Compose.</text>
+<g id="jogador"><title>Pessoa externa ao sistema</title>
+<rect x="1224" y="47" width="274" height="79" rx="13" fill="#e1eceb" stroke="#c6d8d6" />
+<use href="#person" xlink:href="#person" x="1244" y="69" width="31" height="31" color="#126c61"/>
+<text x="1293" y="77" class="tag" >PESSOA</text>
+<text x="1292" y="106" class="heading" >Jogador</text>
+</g>
+<rect x="29" y="168" width="1542" height="922" rx="18" fill="#ffffff" stroke="#8caaa9" stroke-width="1.4" stroke-dasharray="7 5"/>
+<text x="57" y="198" class="over" >SISTEMA  /  PONGGAME</text>
+<path d="M1361 126V218" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="1374" y="151" class="edge" >Usa a interface</text>
+<g id="frontend-estatico"><title>frontend/nginx.conf e frontend/Dockerfile</title>
+<rect x="63" y="222" width="343" height="110" rx="12" fill="#f3f7f7" stroke="#d5e1e4" />
+<use href="#static" xlink:href="#static" x="83" y="240" width="26" height="26" color="#24628a"/>
+<text x="122" y="258" class="heading" >Servidor do frontend</text>
+<text x="84" y="287" class="tech" >Nginx  ·  frontend</text>
+<text x="84" y="312" class="desc" >Entrega HTML, JavaScript e CSS.</text>
+</g>
+<g id="gateway-nginx"><title>gateway/default.conf • Porta publicada em 127.0.0.1:8080</title>
+<rect x="619" y="222" width="375" height="110" rx="12" fill="#173653" stroke="none" />
+<use href="#gateway" xlink:href="#gateway" x="641" y="240" width="26" height="26" color="#8ad8cc"/>
+<text x="683" y="258" class="heading white" >Gateway</text>
+<text x="641" y="287" class="body light" >Nginx  ·  127.0.0.1:8080</text>
+<text x="641" y="312" class="desc white" >Roteia HTTP e balanceia as réplicas de jogo.</text>
+</g>
+<g id="frontend-spa"><title>frontend/src/api.ts • frontend/src/components/GameArenaView.tsx</title>
+<rect x="1183" y="222" width="360" height="110" rx="12" fill="#e8f5f0" stroke="#a9d2c6" />
+<use href="#browser" xlink:href="#browser" x="1204" y="240" width="26" height="26" color="#126c61"/>
+<text x="1244" y="258" class="heading" >Aplicação web</text>
+<text x="1205" y="287" class="tech" >React + TypeScript  ·  navegador</text>
+<text x="1205" y="312" class="desc" >Exibe o lobby e a arena de jogo.</text>
+</g>
+<path d="M619 282H410" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1183 282H998" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="512" y="268" class="edge" text-anchor="middle">Busca arquivos</text>
+<text x="512" y="305" class="tech" text-anchor="middle">HTTP  ·  /</text>
+<text x="1088" y="248" class="edge" text-anchor="middle">Chama as APIs e abre</text>
+<text x="1088" y="268" class="edge" text-anchor="middle">a conexão da partida</text>
+<text x="1088" y="305" class="tech" text-anchor="middle">HTTP e WebSocket</text>
+<path d="M806 332V363" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M425 363H1382" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M425 363V392" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M744 363V392" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1063 363V392" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1382 363V392" fill="none" stroke="#42667b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="60" y="427" class="over" >SERVIÇOS</text>
+<text x="60" y="452" class="over" >DE APLICAÇÃO</text>
+<g id="auth"><title>Auth • C#  ·  ASP.NET Core 10</title>
+<rect x="270" y="397" width="310" height="151" rx="11" fill="#f3f7fa" stroke="#c9d9e5" />
+<use href="#identity" xlink:href="#identity" x="287" y="411" width="26" height="26" color="#24628a"/>
+<text x="324" y="433" class="service" >Auth</text>
+<text x="288" y="459" class="tech" >C#  ·  ASP.NET Core 10</text>
+<text x="288" y="484" class="desc" >Gerencia contas, recuperação</text>
+<text x="288" y="504" class="desc" >de acesso e emissão de tokens.</text>
+<text x="288" y="533" class="code" >HTTP  /api/auth/</text>
+</g>
+<g id="player-service"><title>Player • Java 21  ·  Spring Boot</title>
+<rect x="589" y="397" width="310" height="151" rx="11" fill="#f3f7fa" stroke="#c9d9e5" />
+<use href="#player" xlink:href="#player" x="606" y="411" width="26" height="26" color="#24628a"/>
+<text x="643" y="433" class="service" >Player</text>
+<text x="607" y="459" class="tech" >Java 21  ·  Spring Boot</text>
+<text x="607" y="484" class="desc" >Mantém perfis, estatísticas,</text>
+<text x="607" y="504" class="desc" >histórico de partidas e ranking.</text>
+<text x="607" y="533" class="code" >HTTP  /api/players</text>
+</g>
+<g id="matchmaking"><title>Matchmaking • Java 21  ·  Spring Boot</title>
+<rect x="908" y="397" width="310" height="151" rx="11" fill="#f3f7fa" stroke="#c9d9e5" />
+<use href="#pair" xlink:href="#pair" x="925" y="411" width="26" height="26" color="#24628a"/>
+<text x="962" y="433" class="service" >Matchmaking</text>
+<text x="926" y="459" class="tech" >Java 21  ·  Spring Boot</text>
+<text x="926" y="484" class="desc" >Forma pares, reserva vagas e</text>
+<text x="926" y="504" class="desc" >acompanha o preparo da partida.</text>
+<text x="926" y="533" class="code" >HTTP  /api/matchmaking</text>
+</g>
+<g id="game-service"><title>Game • Go  ·  game-1 e game-2</title>
+<rect x="1227" y="397" width="310" height="151" rx="11" fill="#f1f8f5" stroke="#afd2c4" />
+<use href="#pong" xlink:href="#pong" x="1244" y="411" width="26" height="26" color="#126c61"/>
+<text x="1281" y="433" class="service" >Game</text>
+<text x="1245" y="459" class="tech" >Go  ·  réplicas game-1 e game-2</text>
+<text x="1245" y="484" class="desc" >Simula a partida e transmite</text>
+<text x="1245" y="504" class="desc" >o estado aos dois jogadores.</text>
+<text x="1245" y="533" class="code" >WS  /ws/game/</text>
+</g>
+<text x="60" y="590" class="heading" >Dependências por serviço</text>
+<text x="1536" y="589" class="meta" text-anchor="end">Cada coluna mostra como o serviço usa o recurso da linha.</text>
+<rect x="54" y="607" width="1491" height="461" rx="11" fill="#fff" stroke="#d5e1e4" />
+<g id="postgres-auth"><title>postgres-auth • PostgreSQL 17  ·  SQL</title>
+<use href="#db" xlink:href="#db" x="69" y="621" width="22" height="22" color="#126c61"/>
+<text x="100" y="639" class="resource" >postgres-auth</text>
+<text x="70" y="661" class="tech" >PostgreSQL 17  ·  SQL</text>
+</g>
+<g id="postgres-player"><title>postgres-player • PostgreSQL 17  ·  SQL</title>
+<path d="M54 672H1545" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<use href="#db" xlink:href="#db" x="69" y="686" width="22" height="22" color="#126c61"/>
+<text x="100" y="704" class="resource" >postgres-player</text>
+<text x="70" y="726" class="tech" >PostgreSQL 17  ·  SQL</text>
+</g>
+<g id="redis-compartilhado"><title>Redis • Redis 7  ·  RESP</title>
+<rect x="55" y="737" width="1489" height="84" rx="0" fill="#f1f8f5" stroke="none" />
+<path d="M54 737H1545" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<use href="#redis" xlink:href="#redis" x="69" y="751" width="22" height="22" color="#126c61"/>
+<text x="100" y="769" class="resource" >Redis</text>
+<text x="70" y="791" class="tech" >Redis 7  ·  RESP</text>
+</g>
+<g id="rabbitmq"><title>RabbitMQ • AMQP  ·  pong.events</title>
+<rect x="55" y="821" width="1489" height="153" rx="0" fill="#fdf9ef" stroke="none" />
+<path d="M54 821H1545" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<use href="#broker" xlink:href="#broker" x="69" y="835" width="22" height="22" color="#8c6520"/>
+<text x="100" y="853" class="resource" >RabbitMQ</text>
+<text x="70" y="875" class="tech" >AMQP  ·  pong.events</text>
+<text x="70" y="911" class="edge" >Chaves de roteamento</text>
+<text x="70" y="932" class="edge" >no formato match.&lt;evento&gt;</text>
+</g>
+<g id="ministack"><title>MiniStack • APIs AWS  ·  HTTP</title>
+<path d="M54 974H1545" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<use href="#cloud" xlink:href="#cloud" x="69" y="988" width="22" height="22" color="#126c61"/>
+<text x="100" y="1006" class="resource" >MiniStack</text>
+<text x="70" y="1028" class="tech" >APIs AWS  ·  HTTP</text>
+<text x="70" y="1051" class="edge" >KMS e ElastiCache</text>
+</g>
+<path d="M265 607V1068" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M584 607V1068" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M903 607V1068" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1222 607V1068" fill="none" stroke="#d5e1e4" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+<text x="285" y="634" class="body" >Grava e consulta contas</text>
+<text x="285" y="656" class="body" >e sessões de renovação.</text>
+<text x="604" y="644" class="dash" >—</text>
+<text x="923" y="644" class="dash" >—</text>
+<text x="1242" y="644" class="dash" >—</text>
+<text x="285" y="709" class="dash" >—</text>
+<text x="923" y="709" class="dash" >—</text>
+<text x="1242" y="709" class="dash" >—</text>
+<text x="604" y="699" class="body" >Persiste perfis, resultados e</text>
+<text x="604" y="721" class="body" >IDs de mensagens processadas.</text>
+<text x="285" y="785" class="dash" >—</text>
+<text x="604" y="772" class="body" >Lê e invalida o cache de perfis.</text>
+<text x="604" y="794" class="body" >Grava perfis com expiração.</text>
+<text x="923" y="761" class="body" >Mantém fila, tickets, vagas</text>
+<text x="923" y="783" class="body" >reservadas e eventos pendentes</text>
+<text x="923" y="805" class="body" >de publicação (outbox).</text>
+<text x="1242" y="761" class="body" >Guarda estado, comandos e outbox.</text>
+<text x="1242" y="783" class="body" >Coordena a simulação por lease e</text>
+<text x="1242" y="805" class="body" >distribui quadros por Pub/Sub.</text>
+<text x="285" y="904" class="dash" >—</text>
+<text x="604" y="913" class="operation" >CONSOME</text>
+<text x="604" y="935" class="event" >finished</text>
+<text x="923" y="847" class="operation" >PUBLICA</text>
+<text x="923" y="869" class="event" >created, cancel</text>
+<text x="923" y="913" class="operation" >CONSOME</text>
+<text x="923" y="935" class="event" >ready, provisioning_failed,</text>
+<text x="923" y="953" class="event" >finished</text>
+<text x="1242" y="847" class="operation" >PUBLICA</text>
+<text x="1242" y="869" class="event" >ready, provisioning_failed,</text>
+<text x="1242" y="887" class="event" >finished</text>
+<text x="1242" y="913" class="operation" >CONSOME</text>
+<text x="1242" y="935" class="event" >created, cancel</text>
+<text x="285" y="1009" class="body" >Solicita a assinatura RS256 e</text>
+<text x="285" y="1031" class="body" >obtém a chave pública no KMS.</text>
+<text x="604" y="1000" class="body" >Obtém a chave pública no KMS</text>
+<text x="604" y="1022" class="body" >para validar JWTs. Descobre o</text>
+<text x="604" y="1044" class="body" >endpoint Redis via ElastiCache.</text>
+<text x="923" y="1000" class="body" >Obtém a chave pública no KMS</text>
+<text x="923" y="1022" class="body" >para validar JWTs. Descobre o</text>
+<text x="923" y="1044" class="body" >endpoint Redis via ElastiCache.</text>
+<text x="1242" y="1000" class="body" >Obtém a chave pública no KMS</text>
+<text x="1242" y="1022" class="body" >para validar JWTs. Descobre o</text>
+<text x="1242" y="1044" class="body" >endpoint Redis via ElastiCache.</text>
+</svg>
