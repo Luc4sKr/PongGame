@@ -13,6 +13,8 @@ A polyglot, event-driven distributed Pong platform built with **C# (.NET 10)**, 
 - **Contracts** (`contracts/`): Explicit AsyncAPI 3.0 specification and JSON Schemas using the standard event envelope.
 - **Infrastructure** (`infra/terraform/`): Terraform IaC provisioning AWS KMS asymmetric key + alias, ElastiCache Redis cluster, and SSM parameters against MiniStack (or real AWS).
 
+The [relational database diagram](docs/modelo-relacional.svg) shows the Auth and Player tables, foreign keys, indexes, and how the two services share the player's identity.
+
 ## Quick Start
 
 ```bash

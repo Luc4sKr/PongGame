@@ -1,0 +1,250 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1040" width="1440" height="1040" role="img" aria-labelledby="title desc">
+<title id="title">PongGame — Modelo relacional dos serviços Auth e Player</title>
+<desc id="desc">O banco pong_auth armazena contas e sessões. O banco pong_player armazena perfis, histórico de partidas e mensagens processadas. Cada sessão pertence a uma conta e cada registro de histórico pertence a um jogador. Ambas as chaves estrangeiras têm exclusão em cascata. Os dois serviços identificam a mesma pessoa pelo UUID da conta.</desc>
+<style>
+text{font-family:'Segoe UI',Arial,sans-serif;fill:#183347}
+.title{font-size:40px;font-weight:700}.sub{font-size:19px;fill:#425d6a}.db{font-family:Consolas,monospace;font-size:28px;font-weight:bold}.service{font-size:18px;fill:#425d6a}.table{font-family:Consolas,monospace;font-size:22px;font-weight:bold;fill:white}.purpose{font-size:14px;fill:white}.field,.type,.sql,.key,.null{font-family:Consolas,monospace}.field,.type{font-size:16px}.type{fill:#435867}.key,.null{font-size:12px;font-weight:bold;fill:#254b61}.sql{font-size:14px;fill:#314e60}.label{font-size:13px;font-weight:bold;letter-spacing:.7px;fill:#425e6d}.note{font-size:17px;fill:#294553}.body{font-size:16px;fill:#425b67}.cardinality{font-size:15px;font-weight:700}.legend{font-size:15px;fill:#314e60}
+</style>
+<rect x="0" y="0" width="1440" height="1040" rx="0" fill="#fff" stroke="none"/>
+<text x="42" y="58" class="title" text-anchor="start">Modelo relacional do PongGame</text>
+<text x="44" y="93" class="sub" text-anchor="start">Estrutura física das tabelas de aplicação em PostgreSQL</text>
+<text x="1396" y="61" class="legend" text-anchor="end">PK   Chave primária     ·     FK   Chave estrangeira</text>
+<text x="1396" y="88" class="legend" text-anchor="end">Todas as colunas são obrigatórias, salvo indicação NULL.</text>
+<rect x="32" y="122" width="1376" height="313" rx="16" fill="#f1f6fa" stroke="#ccdae3"/>
+<rect x="58" y="144" width="5" height="31" rx="2" fill="#235477" stroke="none"/>
+<text x="76" y="169" class="db" text-anchor="start">pong_auth</text>
+<text x="1381" y="166" class="service" text-anchor="end">Auth Service   /   Contas e sessões</text>
+<rect x="32" y="455" width="1376" height="556" rx="16" fill="#f0f7f5" stroke="#c8ddd7"/>
+<rect x="58" y="477" width="5" height="31" rx="2" fill="#14635e" stroke="none"/>
+<text x="76" y="502" class="db" text-anchor="start">pong_player</text>
+<text x="1381" y="499" class="service" text-anchor="end">Player Service   /   Perfis, partidas e eventos</text>
+<g id="auth_users" aria-label="auth_users">
+<rect x="58" y="188" width="406" height="230" rx="9" fill="white" stroke="#becdd3"/>
+<path d="M67 188h388q9 0 9 9v55h-406v-55q0 -9 9 -9Z" fill="#235477"/>
+<text x="74" y="215" class="table" text-anchor="start">auth_users</text>
+<text x="74" y="237" class="purpose" text-anchor="start">Uma linha por conta registrada</text>
+<g data-column="id">
+<rect x="68" y="257" width="27" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="81.5" y="270" class="key" text-anchor="middle">PK</text>
+<text x="111" y="271" class="field" text-anchor="start">id</text>
+<text x="450" y="271" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="username">
+<rect x="59" y="278" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="111" y="297" class="field" text-anchor="start">username</text>
+<text x="450" y="297" class="type" text-anchor="end">varchar(32)</text>
+</g>
+<g data-column="password_hash">
+<text x="111" y="323" class="field" text-anchor="start">password_hash</text>
+<text x="450" y="323" class="type" text-anchor="end">text</text>
+</g>
+<g data-column="recovery_hash">
+<rect x="59" y="330" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="111" y="349" class="field" text-anchor="start">recovery_hash</text>
+<text x="450" y="349" class="type" text-anchor="end">bytea</text>
+</g>
+<path d="M59 358h404" fill="none" stroke="#cddae0" stroke-width="1"/>
+<text x="74" y="380" class="sql" text-anchor="start">UNIQUE   lower(username)</text>
+<text x="74" y="402" class="sql" text-anchor="start">COLLATE "C" em username</text>
+</g>
+<g id="auth_sessions" aria-label="auth_sessions">
+<rect x="564" y="188" width="406" height="182" rx="9" fill="white" stroke="#becdd3"/>
+<path d="M573 188h388q9 0 9 9v55h-406v-55q0 -9 9 -9Z" fill="#235477"/>
+<text x="580" y="215" class="table" text-anchor="start">auth_sessions</text>
+<text x="580" y="237" class="purpose" text-anchor="start">Uma linha por sessão de renovação</text>
+<g data-column="token_hash">
+<rect x="574" y="257" width="27" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="587.5" y="270" class="key" text-anchor="middle">PK</text>
+<text x="617" y="271" class="field" text-anchor="start">token_hash</text>
+<text x="956" y="271" class="type" text-anchor="end">bytea</text>
+</g>
+<g data-column="user_id">
+<rect x="565" y="278" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<rect x="574" y="283" width="27" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="587.5" y="296" class="key" text-anchor="middle">FK</text>
+<text x="617" y="297" class="field" text-anchor="start">user_id</text>
+<text x="956" y="297" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="expires_at">
+<text x="617" y="323" class="field" text-anchor="start">expires_at</text>
+<text x="956" y="323" class="type" text-anchor="end">timestamptz</text>
+</g>
+<path d="M565 332h404" fill="none" stroke="#cddae0" stroke-width="1"/>
+<text x="580" y="354" class="sql" text-anchor="start">INDEX    (user_id)</text>
+</g>
+<g id="players" aria-label="players">
+<rect x="58" y="522" width="406" height="390" rx="9" fill="white" stroke="#becdd3"/>
+<path d="M67 522h388q9 0 9 9v55h-406v-55q0 -9 9 -9Z" fill="#14635e"/>
+<text x="74" y="549" class="table" text-anchor="start">players</text>
+<text x="74" y="571" class="purpose" text-anchor="start">Perfil e estatísticas acumuladas por jogador</text>
+<g data-column="id">
+<rect x="68" y="591" width="27" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="81.5" y="604" class="key" text-anchor="middle">PK</text>
+<text x="111" y="605" class="field" text-anchor="start">id</text>
+<text x="450" y="605" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="username">
+<rect x="59" y="612" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="111" y="631" class="field" text-anchor="start">username</text>
+<text x="450" y="631" class="type" text-anchor="end">varchar(64)</text>
+</g>
+<g data-column="elo">
+<text x="111" y="657" class="field" text-anchor="start">elo</text>
+<text x="450" y="657" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="matches_played">
+<rect x="59" y="664" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="111" y="683" class="field" text-anchor="start">matches_played</text>
+<text x="450" y="683" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="wins">
+<text x="111" y="709" class="field" text-anchor="start">wins</text>
+<text x="450" y="709" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="losses">
+<rect x="59" y="716" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="111" y="735" class="field" text-anchor="start">losses</text>
+<text x="450" y="735" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="draws">
+<text x="111" y="761" class="field" text-anchor="start">draws</text>
+<text x="450" y="761" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="total_points_scored">
+<rect x="59" y="768" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="111" y="787" class="field" text-anchor="start">total_points_scored</text>
+<text x="450" y="787" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="total_points_conceded">
+<text x="111" y="813" class="field" text-anchor="start">total_points_conceded</text>
+<text x="450" y="813" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="created_at">
+<rect x="59" y="820" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="111" y="839" class="field" text-anchor="start">created_at</text>
+<text x="450" y="839" class="type" text-anchor="end">timestamptz</text>
+</g>
+<g data-column="updated_at">
+<text x="111" y="865" class="field" text-anchor="start">updated_at</text>
+<text x="450" y="865" class="type" text-anchor="end">timestamptz</text>
+</g>
+<path d="M59 874h404" fill="none" stroke="#cddae0" stroke-width="1"/>
+<text x="74" y="896" class="sql" text-anchor="start">UNIQUE   lower(username)</text>
+</g>
+<g id="player_matches" aria-label="player_matches">
+<rect x="564" y="522" width="406" height="412" rx="9" fill="white" stroke="#becdd3"/>
+<path d="M573 522h388q9 0 9 9v55h-406v-55q0 -9 9 -9Z" fill="#14635e"/>
+<text x="580" y="549" class="table" text-anchor="start">player_matches</text>
+<text x="580" y="571" class="purpose" text-anchor="start">Uma linha por jogador em cada partida</text>
+<g data-column="id">
+<rect x="574" y="591" width="27" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="587.5" y="604" class="key" text-anchor="middle">PK</text>
+<text x="617" y="605" class="field" text-anchor="start">id</text>
+<text x="956" y="605" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="match_id">
+<rect x="565" y="612" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="617" y="631" class="field" text-anchor="start">match_id</text>
+<text x="956" y="631" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="player_id">
+<rect x="574" y="643" width="27" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="587.5" y="656" class="key" text-anchor="middle">FK</text>
+<text x="617" y="657" class="field" text-anchor="start">player_id</text>
+<text x="956" y="657" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="opponent_id">
+<rect x="565" y="664" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="617" y="683" class="field" text-anchor="start">opponent_id</text>
+<text x="956" y="683" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="opponent_username">
+<text x="617" y="709" class="field" text-anchor="start">opponent_username</text>
+<text x="956" y="709" class="type" text-anchor="end">varchar(64)</text>
+</g>
+<g data-column="player_score">
+<rect x="565" y="716" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="617" y="735" class="field" text-anchor="start">player_score</text>
+<text x="956" y="735" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="opponent_score">
+<text x="617" y="761" class="field" text-anchor="start">opponent_score</text>
+<text x="956" y="761" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="result">
+<rect x="565" y="768" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="617" y="787" class="field" text-anchor="start">result</text>
+<text x="956" y="787" class="type" text-anchor="end">varchar(16)</text>
+</g>
+<g data-column="reason">
+<text x="617" y="813" class="field" text-anchor="start">reason</text>
+<text x="956" y="813" class="type" text-anchor="end">varchar(32)</text>
+</g>
+<g data-column="duration_seconds">
+<rect x="565" y="820" width="404" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="617" y="839" class="field" text-anchor="start">duration_seconds</text>
+<text x="956" y="839" class="type" text-anchor="end">int</text>
+</g>
+<g data-column="finished_at">
+<text x="617" y="865" class="field" text-anchor="start">finished_at</text>
+<text x="956" y="865" class="type" text-anchor="end">timestamptz</text>
+</g>
+<path d="M565 874h404" fill="none" stroke="#cddae0" stroke-width="1"/>
+<text x="580" y="896" class="sql" text-anchor="start">UNIQUE   (match_id, player_id)</text>
+<text x="580" y="918" class="sql" text-anchor="start">INDEX    (player_id, finished_at DESC)</text>
+</g>
+<g id="processed_messages" aria-label="processed_messages">
+<rect x="994" y="522" width="388" height="174" rx="9" fill="white" stroke="#becdd3"/>
+<path d="M1003 522h370q9 0 9 9v55h-388v-55q0 -9 9 -9Z" fill="#14635e"/>
+<text x="1010" y="549" class="table" text-anchor="start">processed_messages</text>
+<text x="1010" y="571" class="purpose" text-anchor="start">Uma linha por mensagem processada</text>
+<g data-column="message_id">
+<rect x="1004" y="591" width="27" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="1017.5" y="604" class="key" text-anchor="middle">PK</text>
+<text x="1047" y="605" class="field" text-anchor="start">message_id</text>
+<text x="1368" y="605" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="message_type">
+<rect x="995" y="612" width="386" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="1047" y="631" class="field" text-anchor="start">message_type</text>
+<text x="1368" y="631" class="type" text-anchor="end">varchar(100)</text>
+</g>
+<g data-column="correlation_id">
+<rect x="1004" y="643" width="36" height="17" rx="4" fill="#dde9ed" stroke="none"/>
+<text x="1022" y="656" class="key" text-anchor="middle">NULL</text>
+<text x="1047" y="657" class="field" text-anchor="start">correlation_id</text>
+<text x="1368" y="657" class="type" text-anchor="end">uuid</text>
+</g>
+<g data-column="processed_at">
+<rect x="995" y="664" width="386" height="26" rx="0" fill="#f4f7f8" stroke="none"/>
+<text x="1047" y="683" class="field" text-anchor="start">processed_at</text>
+<text x="1368" y="683" class="type" text-anchor="end">timestamptz</text>
+</g>
+</g>
+<path d="M464 265H514V291H564" fill="none" stroke="#235477" stroke-width="2"/>
+<text x="478" y="257" class="cardinality" text-anchor="start">1</text>
+<text x="554" y="283" class="cardinality" text-anchor="end">0..N</text>
+<path d="M464 599H514V651H564" fill="none" stroke="#14635e" stroke-width="2"/>
+<text x="478" y="591" class="cardinality" text-anchor="start">1</text>
+<text x="554" y="643" class="cardinality" text-anchor="end">0..N</text>
+<text x="1006" y="223" class="label" text-anchor="start">IDENTIDADE ENTRE SERVIÇOS</text>
+<text x="1006" y="251" class="note" text-anchor="start">O Auth emite o UUID de auth_users.id</text>
+<text x="1006" y="275" class="note" text-anchor="start">no campo sub do JWT. O Player usa</text>
+<text x="1006" y="299" class="note" text-anchor="start">esse UUID como players.id.</text>
+<text x="1006" y="323" class="note" text-anchor="start">O vínculo é lógico, sem FK entre bancos.</text>
+<text x="1006" y="352" class="label" text-anchor="start">CICLO DE VIDA DA SESSÃO</text>
+<text x="1006" y="380" class="note" text-anchor="start">Excluir uma conta remove suas sessões</text>
+<text x="1006" y="404" class="note" text-anchor="start">por ON DELETE CASCADE.</text>
+<text x="1006" y="739" class="label" text-anchor="start">PROCESSAMENTO DE EVENTOS</text>
+<text x="1006" y="767" class="note" text-anchor="start">O Player registra message_id na mesma</text>
+<text x="1006" y="791" class="note" text-anchor="start">transação que atualiza o placar e o</text>
+<text x="1006" y="815" class="note" text-anchor="start">histórico. Uma reentrega do evento</text>
+<text x="1006" y="839" class="note" text-anchor="start">com o mesmo ID é ignorada.</text>
+<text x="1006" y="878" class="label" text-anchor="start">HISTÓRICO POR JOGADOR</text>
+<text x="1006" y="906" class="note" text-anchor="start">player_id é a FK com ON DELETE CASCADE.</text>
+<text x="1006" y="930" class="note" text-anchor="start">opponent_id identifica o adversário e</text>
+<text x="1006" y="954" class="note" text-anchor="start">match_id agrupa os registros da partida.</text>
+<text x="74" y="948" class="label" text-anchor="start">VALORES INICIAIS</text>
+<text x="74" y="974" class="body" text-anchor="start">Elo começa em 1000 e os contadores em 0.</text>
+<text x="580" y="974" class="body" text-anchor="start">duration_seconds tem valor inicial 0.</text>
+</svg>
