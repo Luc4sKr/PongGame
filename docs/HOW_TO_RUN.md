@@ -190,16 +190,7 @@ See `contracts/asyncapi.yaml` and `contracts/*.schema.json` for all schemas:
 
 ## 8. Demonstrating Distributed Failure Scenarios (F1–F8)
 
-| Scenario | How to Trigger | Expected Result |
-| --- | --- | --- |
-| **F1 — Saga Compensation** | Restart game replicas with `DEPENDENCY_FAILURE_RATE=1.0`:<br>`DEPENDENCY_FAILURE_RATE=1.0 docker compose up -d game-1 game-2` | Matchmaking pairs 2 players, Game fails arena provisioning and emits `match.provisioning_failed`; Matchmaking transitions both tickets to `COMPENSATED`, releases the arena slot & player locks. |
-| **F2 — Consumer Killed Mid-Processing** | `docker kill ponggame-game-1-1` during provisioning or mid-match | RabbitMQ redelivers unacked `match.created` to `game-2` (or `game-2` acquires the 3s Redis lease mid-match); effect applied strictly once. |
-| **F3 — Duplicate Message** | Republish same `messageId` 5x (covered automatically in `scripts/e2e_test.py`) | Player Service `processed_messages` table & Redis `SETNX` guards ensure strictly 1 effect. |
-| **F4 — Poison Message -> DLQ** | Publish malformed JSON to `pong.events` (covered automatically in `scripts/e2e_test.py`) | Retried 3 times, then routed to `*.dlq` while valid traffic continues unaffected. |
-| **F5 — Concurrency Race** | 30–100 concurrent `POST /api/matchmaking/arenas/reserve` calls for `MATCHMAKING_MAX_CONCURRENT_MATCHES=10` | Atomic Redis Lua script grants strictly 10 slots and rejects the rest with `409 Conflict`. |
-| **F6 — Broker Outage & Recovery** | `docker compose stop rabbitmq && sleep 30 && docker compose start rabbitmq` | Outbound events accumulate in Redis outbox (`mm:outbox` / `game:outbox`). All services automatically reconnect without manual restart and drain pending events. |
-| **F7 — Late Response Compensation** | `DEPENDENCY_MIN_LATENCY_MS=12000 DEPENDENCY_MAX_LATENCY_MS=13000 MATCHMAKING_PROVISIONING_TIMEOUT_MS=3000 docker compose up -d matchmaking game-1 game-2` | Matchmaking expires the match at 3s (`COMPENSATED` + `match.cancel`), and when late `match.ready` arrives at 12s, Matchmaking emits `match.cancel` so Game tears down the orphaned arena. |
-| **F8 — Horizontal Scaling** | Add a third Game replica (`game-3`) or run `game-1` & `game-2` under load | Competing consumers on `game.match.created` distribute provisioning across replicas with zero duplicate match state. |
+The [live demonstration guide](DEMO_FALHAS.md) includes a PowerShell command for each scenario, the evidence to show, and instructions for inspecting the running databases and RabbitMQ.
 
 ---
 

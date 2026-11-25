@@ -26,3 +26,5 @@ python3 scripts/e2e_test.py
 Then open **http://localhost:8080** in two browser tabs side-by-side to register/login two players and play a real-time distributed Pong match!
 
 For full setup instructions (Docker & Podman, Terraform, API/WebSocket protocol, and distributed failure scenarios F1–F8), see **[docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md)**.
+
+Para apresentar um cenário de falha ao vivo, siga o [roteiro de demonstração F1–F8](docs/DEMO_FALHAS.md).

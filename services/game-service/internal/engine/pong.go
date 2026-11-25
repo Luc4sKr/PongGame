@@ -254,9 +254,8 @@ func (m *Manager) runLoop(ctx context.Context, matchID string) {
 				} else {
 					// Broadcast waiting status at ~5Hz so clients see opponent connection updates
 					state.Tick++
-					if state.Tick%6 == 0 {
-						_ = m.store.SaveMatch(ctx, state)
-						_ = m.store.PublishState(ctx, matchID, ToFrame(state, m.instanceID))
+					if state.Tick%6 == 0 && !m.publishFrame(ctx, state) {
+						return
 					}
 					continue
 				}
@@ -279,12 +278,23 @@ func (m *Manager) runLoop(ctx context.Context, matchID string) {
 				return
 			}
 
-			if err := m.store.SaveMatch(ctx, state); err != nil {
-				log.Printf("[engine:%s] failed saving state for match %s: %v", m.instanceID, matchID, err)
+			if !m.publishFrame(ctx, state) {
+				return
 			}
-			_ = m.store.PublishState(ctx, matchID, ToFrame(state, m.instanceID))
 		}
 	}
+}
+
+func (m *Manager) publishFrame(ctx context.Context, state *store.MatchState) bool {
+	written, err := m.store.SaveFrame(ctx, state)
+	if err != nil {
+		log.Printf("[engine:%s] failed saving frame for match %s: %v", m.instanceID, state.MatchID, err)
+		return false
+	}
+	if written {
+		_ = m.store.PublishState(ctx, state.MatchID, ToFrame(state, m.instanceID))
+	}
+	return written
 }
 
 func (m *Manager) finishMatch(ctx context.Context, state *store.MatchState, winnerID *string, reason string) {

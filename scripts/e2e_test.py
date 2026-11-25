@@ -31,6 +31,7 @@ import struct
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -210,8 +211,9 @@ def main():
     print(f"   OK (matchId={match_id}, wsPath={ws_path})")
 
     print("5. Playing real-time Pong over WebSockets through Nginx load-balanced Go replicas...")
-    ws1 = SimpleWSClient("127.0.0.1", 8080, ws_path, t1)
-    ws2 = SimpleWSClient("127.0.0.1", 8080, ws_path, t2)
+    gateway = urllib.parse.urlsplit(GATEWAY_URL)
+    ws1 = SimpleWSClient(gateway.hostname, gateway.port or 80, ws_path, t1)
+    ws2 = SimpleWSClient(gateway.hostname, gateway.port or 80, ws_path, t2)
     try:
         w1 = ws1.recv_json()
         w2 = ws2.recv_json()

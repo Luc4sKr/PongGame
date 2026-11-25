@@ -5,6 +5,7 @@ spring:
   application:
     name: matchmaking-service
   rabbitmq:
+    publisher-confirm-type: simple
     host: ${RABBITMQ_HOST:rabbitmq}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:pong}

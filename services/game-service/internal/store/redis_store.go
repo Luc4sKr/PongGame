@@ -69,6 +69,7 @@ type MatchState struct {
 type OutboxItem struct {
 	RoutingKey string `json:"routingKey"`
 	Body       string `json:"body"`
+	raw        string
 }
 
 type RedisStore struct {
@@ -220,7 +221,7 @@ func (s *RedisStore) SaveMatch(ctx context.Context, state *MatchState) error {
 	if err != nil {
 		return err
 	}
-	pipe := s.client.Pipeline()
+	pipe := s.client.TxPipeline()
 	pipe.Set(ctx, matchKey(state.MatchID), data, 4*time.Hour)
 	if state.Status == "WAITING_FOR_PLAYERS" || state.Status == "PLAYING" {
 		pipe.SAdd(ctx, ActiveMatchesSetKey, state.MatchID)
@@ -229,6 +230,27 @@ func (s *RedisStore) SaveMatch(ctx context.Context, state *MatchState) error {
 	}
 	_, err = pipe.Exec(ctx)
 	return err
+}
+
+// A cancellation can be consumed by a replica other than the simulation owner.
+// Never let an in-flight tick restore a match removed from the active set.
+var saveFrameIfActive = redis.NewScript(`
+if redis.call("SISMEMBER", KEYS[2], ARGV[1]) == 0 then
+    return 0
+end
+redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3])
+return 1
+`)
+
+func (s *RedisStore) SaveFrame(ctx context.Context, state *MatchState) (bool, error) {
+	state.UpdatedAt = time.Now().UnixMilli()
+	data, err := json.Marshal(state)
+	if err != nil {
+		return false, err
+	}
+	keys := []string{matchKey(state.MatchID), ActiveMatchesSetKey}
+	written, err := saveFrameIfActive.Run(ctx, s.client, keys, state.MatchID, data, 4*60*60).Int()
+	return written == 1, err
 }
 
 func (s *RedisStore) GetMatch(ctx context.Context, matchID string) (*MatchState, error) {
@@ -338,9 +360,19 @@ func (s *RedisStore) PeekOutbox(ctx context.Context) (*OutboxItem, error) {
 	if err := json.Unmarshal(raw, &item); err != nil {
 		return nil, err
 	}
+	item.raw = string(raw)
 	return &item, nil
 }
 
-func (s *RedisStore) PopOutbox(ctx context.Context) error {
-	return s.client.LPop(ctx, OutboxListKey).Err()
+// Several replicas can publish the same head. Only remove that exact record.
+var removePublishedHead = redis.NewScript(`
+if redis.call("LINDEX", KEYS[1], 0) == ARGV[1] then
+    redis.call("LPOP", KEYS[1])
+    return 1
+end
+return 0
+`)
+
+func (s *RedisStore) RemovePublished(ctx context.Context, item *OutboxItem) error {
+	return removePublishedHead.Run(ctx, s.client, []string{OutboxListKey}, item.raw).Err()
 }

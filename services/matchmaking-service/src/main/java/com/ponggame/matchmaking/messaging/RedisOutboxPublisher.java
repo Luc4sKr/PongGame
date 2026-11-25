@@ -62,7 +62,7 @@ public class RedisOutboxPublisher {
             String envelopeJson = objectMapper.writeValueAsString(envelope);
             OutboxRecord record = new OutboxRecord(routingKey, envelopeJson);
             redis.opsForList().rightPush(OUTBOX_KEY, objectMapper.writeValueAsString(record));
-            drainOutbox();
+            // The scheduled publisher owns broker I/O, including reconnects during an outage.
             return messageId;
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to enqueue outbox event " + eventType, ex);
@@ -91,7 +91,11 @@ public class RedisOutboxPublisher {
                         .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                         .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
                         .build();
-                rabbitTemplate.send(eventsExchange, record.routingKey(), message);
+                rabbitTemplate.invoke(channel -> {
+                    channel.send(eventsExchange, record.routingKey(), message);
+                    channel.waitForConfirmsOrDie(5000);
+                    return null;
+                });
                 redis.opsForList().leftPop(OUTBOX_KEY);
                 log.info("Published outbox event to exchange={} routingKey={}", eventsExchange, record.routingKey());
             }

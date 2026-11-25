@@ -9,6 +9,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 @Component
 public class MatchFinishedConsumer {
@@ -30,7 +31,7 @@ public class MatchFinishedConsumer {
 
         validateEnvelope(envelope);
         MatchFinishedPayload payload = objectMapper.treeToValue(envelope.payload(), MatchFinishedPayload.class);
-        validatePayload(payload);
+        validatePayload(envelope.messageId(), payload);
 
         playerStatsService.recordMatchFinished(envelope, payload);
     }
@@ -49,7 +50,7 @@ public class MatchFinishedConsumer {
         }
     }
 
-    private void validatePayload(MatchFinishedPayload payload) {
+    private void validatePayload(UUID messageId, MatchFinishedPayload payload) {
         if (payload == null
                 || payload.matchId() == null
                 || payload.player1Id() == null
@@ -59,7 +60,7 @@ public class MatchFinishedConsumer {
                 || payload.player1Score() == null || payload.player1Score() < 0
                 || payload.player2Score() == null || payload.player2Score() < 0
                 || payload.reason() == null || payload.reason().isBlank()) {
-            log.error("Rejecting invalid match.finished payload (will route to DLQ after retries)");
+            log.error("Rejecting invalid match.finished payload messageId={} (will route to DLQ after retries)", messageId);
             throw new IllegalArgumentException("Invalid match.finished payload");
         }
     }

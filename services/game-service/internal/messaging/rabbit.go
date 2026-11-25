@@ -130,6 +130,11 @@ func (b *Broker) connectAndConsume(ctx context.Context) error {
 		return err
 	}
 
+	if err := pubCh.Confirm(false); err != nil {
+		_ = conn.Close()
+		return err
+	}
+
 	if err := b.declareTopology(consumeCh); err != nil {
 		_ = consumeCh.Close()
 		_ = pubCh.Close()
@@ -267,6 +272,8 @@ func (b *Broker) handleMatchCreatedDelivery(ctx context.Context, d amqp.Delivery
 	}
 
 	// R5 / F1 / F7 Simulated slow/unstable external Arena Provisioner dependency
+	log.Printf("[rabbit:%s] processing match.created matchId=%s messageId=%s redelivered=%t",
+		b.cfg.InstanceID, payload.MatchID, env.MessageID, d.Redelivered)
 	if depErr := b.simulateUnstableDependency(ctx, payload.MatchID); depErr != nil {
 		log.Printf("[rabbit:%s] unstable dependency failed for match %s: %v", b.cfg.InstanceID, payload.MatchID, depErr)
 		failEnv := engine.EventEnvelope{
@@ -446,25 +453,28 @@ func (b *Broker) runOutboxDrainer(ctx context.Context) {
 				if err != nil || item == nil {
 					break
 				}
-				if err := b.publishRaw(item.RoutingKey, []byte(item.Body)); err != nil {
+				if err := b.publishRaw(ctx, item.RoutingKey, []byte(item.Body)); err != nil {
 					log.Printf("[rabbit:%s] outbox publish failed (will retry): %v", b.cfg.InstanceID, err)
 					break
 				}
-				_ = b.store.PopOutbox(ctx)
+				if err := b.store.RemovePublished(ctx, item); err != nil {
+					log.Printf("[rabbit:%s] outbox removal failed: %v", b.cfg.InstanceID, err)
+					break
+				}
 				log.Printf("[rabbit:%s] published outbox event routingKey=%s", b.cfg.InstanceID, item.RoutingKey)
 			}
 		}
 	}
 }
 
-func (b *Broker) publishRaw(routingKey string, body []byte) error {
+func (b *Broker) publishRaw(ctx context.Context, routingKey string, body []byte) error {
 	b.mu.Lock()
 	ch := b.pubCh
 	b.mu.Unlock()
 	if ch == nil {
 		return errors.New("rabbitmq channel not connected")
 	}
-	return ch.Publish(
+	confirm, err := ch.PublishWithDeferredConfirm(
 		b.cfg.RabbitMQEventsExchange,
 		routingKey,
 		false,
@@ -475,4 +485,17 @@ func (b *Broker) publishRaw(routingKey string, body []byte) error {
 			Body:         body,
 		},
 	)
+	if err != nil {
+		return err
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	acked, err := confirm.WaitContext(waitCtx)
+	if err != nil {
+		return err
+	}
+	if !acked {
+		return errors.New("broker rejected outbox event")
+	}
+	return nil
 }
