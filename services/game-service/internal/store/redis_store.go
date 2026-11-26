@@ -95,20 +95,11 @@ return 0
 `)
 
 func NewRedisStore(ctx context.Context, cfg config.Config) (*RedisStore, error) {
-	host := "redis"
-	port := 6379
-
-	if cfg.RedisHostOverride != "" {
-		host = cfg.RedisHostOverride
-		if cfg.RedisPortOverride > 0 {
-			port = cfg.RedisPortOverride
-		}
-		log.Printf("[redis] using explicit override %s:%d", host, port)
-	} else {
-		h, p := discoverElastiCache(ctx, cfg)
-		host, port = h, p
-		log.Printf("[redis] discovered ElastiCache cluster '%s' endpoint %s:%d", cfg.ElastiCacheClusterID, host, port)
+	host, port, err := discoverElastiCache(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
+	log.Printf("[redis] discovered ElastiCache cluster '%s' endpoint %s:%d", cfg.ElastiCacheClusterID, host, port)
 
 	client := redis.NewClient(&redis.Options{
 		Addr:         fmt.Sprintf("%s:%d", host, port),
@@ -135,7 +126,7 @@ func NewRedisStore(ctx context.Context, cfg config.Config) (*RedisStore, error) 
 	return nil, fmt.Errorf("failed to connect to Redis at %s:%d", host, port)
 }
 
-func discoverElastiCache(ctx context.Context, cfg config.Config) (string, int) {
+func discoverElastiCache(ctx context.Context, cfg config.Config) (string, int, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.AWSRegion),
 	}
@@ -146,8 +137,7 @@ func discoverElastiCache(ctx context.Context, cfg config.Config) (string, int) {
 	}
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		log.Printf("[elasticache] aws config error, falling back to redis:6379: %v", err)
-		return "redis", 6379
+		return "", 0, fmt.Errorf("load aws config: %w", err)
 	}
 
 	ec := elasticache.NewFromConfig(awsCfg, func(o *elasticache.Options) {
@@ -168,17 +158,17 @@ func discoverElastiCache(ctx context.Context, cfg config.Config) (string, int) {
 				if ep.Port != nil && *ep.Port > 0 {
 					p = int(*ep.Port)
 				}
-				return *ep.Address, p
+				return *ep.Address, p, nil
 			}
 		}
 		log.Printf("[elasticache] waiting for cluster '%s' (attempt %d/20)", cfg.ElastiCacheClusterID, attempt)
 		select {
 		case <-ctx.Done():
-			return "redis", 6379
+			return "", 0, ctx.Err()
 		case <-time.After(time.Second):
 		}
 	}
-	return "redis", 6379
+	return "", 0, fmt.Errorf("failed to discover ElastiCache cluster '%s' after 20 attempts", cfg.ElastiCacheClusterID)
 }
 
 func (s *RedisStore) Close() error {

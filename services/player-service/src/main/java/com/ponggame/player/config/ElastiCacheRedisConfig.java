@@ -20,30 +20,12 @@ public class ElastiCacheRedisConfig {
     @Value("${app.elasticache.cluster-id:ponggame-redis}")
     private String clusterId;
 
-    @Value("${app.elasticache.redis-host-override:}")
-    private String redisHostOverride;
-
-    @Value("${app.elasticache.redis-port-override:0}")
-    private int redisPortOverride;
-
     @Bean
     @Primary
     public LettuceConnectionFactory redisConnectionFactory(ElastiCacheClient elastiCacheClient) {
-        String host = "redis";
-        int port = 6379;
-
-        if (redisHostOverride != null && !redisHostOverride.isBlank()) {
-            host = redisHostOverride;
-            port = redisPortOverride > 0 ? redisPortOverride : 6379;
-            log.info("Using explicit Redis override {}:{}", host, port);
-        } else {
-            Endpoint resolved = discoverEndpoint(elastiCacheClient);
-            host = resolved.host();
-            port = resolved.port();
-            log.info("Discovered ElastiCache cluster '{}' endpoint {}:{}", clusterId, host, port);
-        }
-
-        return new LettuceConnectionFactory(new RedisStandaloneConfiguration(host, port));
+        Endpoint resolved = discoverEndpoint(elastiCacheClient);
+        log.info("Discovered ElastiCache cluster '{}' endpoint {}:{}", clusterId, resolved.host(), resolved.port());
+        return new LettuceConnectionFactory(new RedisStandaloneConfiguration(resolved.host(), resolved.port()));
     }
 
     @Bean
@@ -77,12 +59,12 @@ public class ElastiCacheRedisConfig {
                 Thread.sleep(1000);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                break;
+                throw new IllegalStateException("Interrupted while discovering ElastiCache cluster '" + clusterId + "'", ie);
             }
         }
-        log.warn("Falling back to default Redis endpoint redis:6379 after ElastiCache discovery failure: {}",
-                lastError != null ? lastError.getMessage() : "no nodes");
-        return new Endpoint("redis", 6379);
+        throw new IllegalStateException(
+                "Failed to discover ElastiCache cluster '" + clusterId + "' after 20 attempts"
+                + (lastError != null ? ": " + lastError.getMessage() : " (cluster not found or has no nodes)"));
     }
 
     private record Endpoint(String host, int port) {}

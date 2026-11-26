@@ -19,8 +19,6 @@ type Config struct {
 	JWTIssuer                 string
 	JWTAudience               string
 	ElastiCacheClusterID      string
-	RedisHostOverride         string
-	RedisPortOverride         int
 	RabbitMQURL               string
 	RabbitMQEventsExchange    string
 	RabbitMQDLXExchange       string
@@ -60,8 +58,6 @@ func Load() Config {
 		JWTIssuer:              envOr("JWT_ISSUER", "PongGame.Auth"),
 		JWTAudience:            envOr("JWT_AUDIENCE", "PongGame"),
 		ElastiCacheClusterID:   envOr("ELASTICACHE_CLUSTER_ID", "ponggame-redis"),
-		RedisHostOverride:      strings.TrimSpace(os.Getenv("REDIS_HOST")),
-		RedisPortOverride:      envInt("REDIS_PORT", 0),
 		RabbitMQURL:            rabbitURL,
 		RabbitMQEventsExchange: envOr("RABBITMQ_EVENTS_EXCHANGE", "pong.events"),
 		RabbitMQDLXExchange:    envOr("RABBITMQ_DLX_EXCHANGE", "pong.dlx"),

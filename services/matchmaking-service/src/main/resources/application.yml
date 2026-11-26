@@ -37,8 +37,6 @@ app:
     audience: ${JWT_AUDIENCE:PongGame}
   elasticache:
     cluster-id: ${ELASTICACHE_CLUSTER_ID:ponggame-redis}
-    redis-host-override: ${REDIS_HOST:}
-    redis-port-override: ${REDIS_PORT:0}
   matchmaking:
     max-concurrent-matches: ${MATCHMAKING_MAX_CONCURRENT_MATCHES:10}
     winning-score: ${MATCHMAKING_WINNING_SCORE:5}

@@ -48,8 +48,6 @@ app:
     audience: ${JWT_AUDIENCE:PongGame}
   elasticache:
     cluster-id: ${ELASTICACHE_CLUSTER_ID:ponggame-redis}
-    redis-host-override: ${REDIS_HOST:}
-    redis-port-override: ${REDIS_PORT:0}
   cache:
     player-ttl-seconds: ${PLAYER_CACHE_TTL_SECONDS:60}
   rabbitmq:
