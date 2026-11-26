@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,7 +14,11 @@ import (
 	"github.com/ponggame/game-service/internal/engine"
 	"github.com/ponggame/game-service/internal/messaging"
 	"github.com/ponggame/game-service/internal/store"
+	"github.com/ponggame/game-service/internal/telemetry"
 	"github.com/ponggame/game-service/internal/ws"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func main() {
@@ -22,6 +27,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	shutdownTelemetry, err := telemetry.Init(ctx, cfg.InstanceID)
+	if err != nil {
+		log.Printf("[telemetry] initialization failed: %v", err)
+	} else {
+		defer shutdownTelemetry()
+	}
 
 	verifier, err := auth.NewVerifier(ctx, cfg)
 	if err != nil {
@@ -39,11 +50,23 @@ func main() {
 
 	broker := messaging.NewBroker(cfg, redisStore, engineMgr)
 	go broker.Run(ctx)
+	telemetry.Gauge("pong.game.broker.connected", func(context.Context) (int64, error) {
+		if broker.IsConnected() {
+			return 1, nil
+		}
+		return 0, nil
+	})
 
 	handler := ws.NewHandler(cfg.InstanceID, verifier, redisStore, engineMgr, broker)
 	srv := &http.Server{
-		Addr:              ":" + cfg.ServerPort,
-		Handler:           handler.Routes(),
+		Addr: ":" + cfg.ServerPort,
+		Handler: otelhttp.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			span := trace.SpanFromContext(r.Context())
+			span.SetAttributes(attribute.String("http.route", route(r.URL.Path)))
+			w.Header().Set("X-Trace-Id", span.SpanContext().TraceID().String())
+			handler.Routes().ServeHTTP(w, r)
+		}), "game.http", otelhttp.WithFilter(func(r *http.Request) bool { return r.URL.Path != "/health" }),
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string { return r.Method + " " + route(r.URL.Path) })),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -58,4 +81,13 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+func route(path string) string {
+	for _, prefix := range []string{"/ws/game/", "/api/game/matches/"} {
+		if strings.HasPrefix(path, prefix) {
+			return prefix + "{matchId}"
+		}
+	}
+	return path
 }

@@ -1,9 +1,14 @@
 package com.ponggame.matchmaking.service;
 
 import com.ponggame.matchmaking.messaging.RedisOutboxPublisher;
+import com.ponggame.matchmaking.observability.Telemetry;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -11,11 +16,13 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class MatchmakingService {
@@ -32,141 +39,36 @@ public class MatchmakingService {
     private static final String PROCESSED_PREFIX = "mm:processed:";
 
     // Atomically enroll player into FIFO queue if not already queued/in-match
-    private static final DefaultRedisScript<String> ENQUEUE_SCRIPT = new DefaultRedisScript<>("""
-            local existing = redis.call('GET', KEYS[1])
-            if existing then
-                return existing
-            end
-            redis.call('SET', KEYS[1], ARGV[1], 'EX', 3600)
-            redis.call('HSET', KEYS[2],
-                'ticketId', ARGV[1],
-                'playerId', ARGV[2],
-                'username', ARGV[3],
-                'status', 'QUEUED',
-                'correlationId', ARGV[4],
-                'matchId', '',
-                'wsPath', '',
-                'reason', '',
-                'updatedAt', ARGV[5])
-            redis.call('EXPIRE', KEYS[2], 7200)
-            redis.call('RPUSH', KEYS[3], ARGV[1])
-            return ARGV[1]
-            """, String.class);
+    private static final DefaultRedisScript<String> ENQUEUE_SCRIPT = redisScript("enqueue-player.lua", String.class);
 
     // Atomically pop two queued tickets and reserve 1 arena slot under maxConcurrentMatches
     @SuppressWarnings("rawtypes")
-    private static final DefaultRedisScript<List> PAIR_SCRIPT = new DefaultRedisScript<>("""
-            local maxSlots = tonumber(ARGV[1])
-            local active = tonumber(redis.call('GET', KEYS[2]) or '0')
-            if active >= maxSlots then
-                return {}
-            end
-
-            local function popValidTicket()
-                while true do
-                    local tid = redis.call('LPOP', KEYS[1])
-                    if not tid then
-                        return nil
-                    end
-                    local st = redis.call('HGET', 'mm:ticket:' .. tid, 'status')
-                    if st == 'QUEUED' then
-                        return tid
-                    end
-                end
-            end
-
-            local t1 = popValidTicket()
-            if not t1 then
-                return {}
-            end
-            local t2 = popValidTicket()
-            if not t2 then
-                redis.call('LPUSH', KEYS[1], t1)
-                return {}
-            end
-
-            local p1Id = redis.call('HGET', 'mm:ticket:' .. t1, 'playerId')
-            local p1User = redis.call('HGET', 'mm:ticket:' .. t1, 'username')
-            local p2Id = redis.call('HGET', 'mm:ticket:' .. t2, 'playerId')
-            local p2User = redis.call('HGET', 'mm:ticket:' .. t2, 'username')
-
-            if p1Id == p2Id then
-                redis.call('LPUSH', KEYS[1], t1)
-                return {}
-            end
-
-            redis.call('INCR', KEYS[2])
-
-            local matchId = ARGV[2]
-            local corrId = ARGV[3]
-            local nowIso = ARGV[4]
-            local deadlineMs = ARGV[5]
-
-            redis.call('HSET', 'mm:ticket:' .. t1, 'status', 'PROVISIONING', 'matchId', matchId, 'correlationId', corrId, 'updatedAt', nowIso)
-            redis.call('HSET', 'mm:ticket:' .. t2, 'status', 'PROVISIONING', 'matchId', matchId, 'correlationId', corrId, 'updatedAt', nowIso)
-            redis.call('HSET', 'mm:match:' .. matchId,
-                'matchId', matchId,
-                'status', 'PROVISIONING',
-                'correlationId', corrId,
-                'player1Id', p1Id,
-                'player1Username', p1User,
-                'ticket1Id', t1,
-                'player2Id', p2Id,
-                'player2Username', p2User,
-                'ticket2Id', t2,
-                'deadlineMs', deadlineMs,
-                'slotReleased', '0',
-                'updatedAt', nowIso)
-            redis.call('EXPIRE', 'mm:match:' .. matchId, 7200)
-            redis.call('ZADD', KEYS[3], tonumber(deadlineMs), matchId)
-
-            return {t1, p1Id, p1User, t2, p2Id, p2User}
-            """, List.class);
+    private static final DefaultRedisScript<List> PAIR_SCRIPT = redisScript("pair-waiting-players.lua", List.class);
 
     // Atomically reserve 1 scarce arena slot (R2 / F5 concurrency control)
-    private static final DefaultRedisScript<Long> RESERVE_SLOT_SCRIPT = new DefaultRedisScript<>("""
-            local limit = tonumber(ARGV[1])
-            local current = tonumber(redis.call('GET', KEYS[1]) or '0')
-            if current >= limit then
-                return 0
-            end
-            local nextVal = redis.call('INCR', KEYS[1])
-            redis.call('SET', KEYS[2], ARGV[2], 'EX', 3600)
-            return nextVal
-            """, Long.class);
+    private static final DefaultRedisScript<Long> RESERVE_SLOT_SCRIPT = redisScript("reserve-arena-slot.lua", Long.class);
 
     // Atomically release a direct arena reservation
-    private static final DefaultRedisScript<Long> RELEASE_RESERVATION_SCRIPT = new DefaultRedisScript<>("""
-            local exists = redis.call('DEL', KEYS[2])
-            if exists == 1 then
-                local current = tonumber(redis.call('GET', KEYS[1]) or '0')
-                if current > 0 then
-                    redis.call('DECR', KEYS[1])
-                end
-                return 1
-            end
-            return 0
-            """, Long.class);
+    private static final DefaultRedisScript<Long> RELEASE_RESERVATION_SCRIPT = redisScript("release-arena-reservation.lua", Long.class);
 
     // Atomically release match slot once (idempotent against duplicate compensation/finish)
-    private static final DefaultRedisScript<Long> RELEASE_MATCH_SLOT_SCRIPT = new DefaultRedisScript<>("""
-            local released = redis.call('HGET', KEYS[1], 'slotReleased')
-            if released == '1' then
-                return 0
-            end
-            redis.call('HSET', KEYS[1], 'slotReleased', '1')
-            local current = tonumber(redis.call('GET', KEYS[2]) or '0')
-            if current > 0 then
-                redis.call('DECR', KEYS[2])
-            end
-            return 1
-            """, Long.class);
+    private static final DefaultRedisScript<Long> RELEASE_MATCH_SLOT_SCRIPT = redisScript("release-match-slot.lua", Long.class);
+
+    private static <T> DefaultRedisScript<T> redisScript(String name, Class<T> resultType) {
+        var script = new DefaultRedisScript<T>();
+        script.setLocation(new ClassPathResource("redis/" + name));
+        script.setResultType(resultType);
+        return script;
+    }
 
     private final StringRedisTemplate redis;
     private final RedisOutboxPublisher outboxPublisher;
     private final int maxConcurrentMatches;
     private final int winningScore;
     private final long provisioningTimeoutMs;
+    private final AtomicLong activeGauge = new AtomicLong();
+    private final AtomicLong queueGauge = new AtomicLong();
+    private final AtomicLong outboxGauge = new AtomicLong();
 
     public MatchmakingService(
             StringRedisTemplate redis,
@@ -179,12 +81,26 @@ public class MatchmakingService {
         this.maxConcurrentMatches = maxConcurrentMatches;
         this.winningScore = winningScore;
         this.provisioningTimeoutMs = provisioningTimeoutMs;
+        var meter = GlobalOpenTelemetry.getMeter("ponggame/matchmaking");
+        meter.gaugeBuilder("pong.matchmaking.active").ofLongs().buildWithCallback(o -> o.record(activeGauge.get()));
+        meter.gaugeBuilder("pong.matchmaking.queued").ofLongs().buildWithCallback(o -> o.record(queueGauge.get()));
+        meter.gaugeBuilder("pong.matchmaking.outbox.pending").ofLongs().buildWithCallback(o -> o.record(outboxGauge.get()));
+        meter.gaugeBuilder("pong.matchmaking.capacity").ofLongs().buildWithCallback(o -> o.record(maxConcurrentMatches));
+    }
+
+    @Scheduled(fixedDelay = 3000)
+    public void updateTelemetryGauges() {
+        var status = getStatus();
+        activeGauge.set(status.activeMatches());
+        queueGauge.set(status.queuedPlayers());
+        outboxGauge.set(status.pendingOutboxMessages());
     }
 
     public TicketDto enqueuePlayer(UUID playerId, String username) {
         UUID candidateTicketId = UUID.randomUUID();
         UUID correlationId = UUID.randomUUID();
         String nowIso = Instant.now().toString();
+        Map<String, String> traceContext = Telemetry.capture();
 
         String activeTicketId = redis.execute(
                 ENQUEUE_SCRIPT,
@@ -193,7 +109,9 @@ public class MatchmakingService {
                 playerId.toString(),
                 username,
                 correlationId.toString(),
-                nowIso);
+                nowIso,
+                traceContext.getOrDefault("traceparent", ""),
+                traceContext.getOrDefault("tracestate", ""));
 
         tryPairWaitingPlayers();
 
@@ -219,7 +137,7 @@ public class MatchmakingService {
                     now.toString(),
                     String.valueOf(deadline.toEpochMilli()));
 
-            if (paired == null || paired.size() < 6) {
+            if (paired == null || paired.size() < 10) {
                 return;
             }
 
@@ -237,8 +155,23 @@ public class MatchmakingService {
                     "winningScore", winningScore,
                     "provisionDeadline", deadline.toString());
 
-            outboxPublisher.enqueueEvent("match.created", "match.created", correlationId, payload);
-            log.info("Paired {} vs {} into matchId={} (correlationId={})", p1User, p2User, matchId, correlationId);
+            var firstTicketContext = Map.of("traceparent", str(paired.get(6)), "tracestate", str(paired.get(7)));
+            var secondTicketContext = Map.of("traceparent", str(paired.get(8)), "tracestate", str(paired.get(9)));
+            try (var operation = Telemetry.startPairing(firstTicketContext, secondTicketContext)) {
+                try {
+                    Telemetry.annotate(matchId.toString(), null, correlationId.toString());
+                    Map<String, String> matchContext = new HashMap<>();
+                    Telemetry.capture().forEach((key, value) -> matchContext.put("otel." + key, value));
+                    if (!matchContext.isEmpty()) {
+                        redis.opsForHash().putAll(MATCH_PREFIX + matchId, matchContext);
+                    }
+                    outboxPublisher.enqueueEvent("match.created", "match.created", correlationId, payload);
+                    log.info("Paired players into matchId={} (correlationId={})", matchId, correlationId);
+                } catch (RuntimeException error) {
+                    operation.error(error);
+                    throw error;
+                }
+            }
         }
     }
 
@@ -285,8 +218,10 @@ public class MatchmakingService {
                 String.valueOf(maxConcurrentMatches),
                 playerId.toString());
         if (activeAfter == null || activeAfter <= 0) {
+            Telemetry.count("pong.arenas.reservations", "rejected");
             return Optional.empty();
         }
+        Telemetry.count("pong.arenas.reservations", "created");
         return Optional.of(new ArenaReservationDto(
                 reservationId.toString(),
                 playerId.toString(),
@@ -404,16 +339,27 @@ public class MatchmakingService {
             }
             Map<Object, Object> match = redis.opsForHash().entries(MATCH_PREFIX + matchIdStr);
             if ("PROVISIONING".equals(match.get("status"))) {
+                Map<String, String> carrier = new HashMap<>();
+                for (String key : List.of("traceparent", "tracestate")) {
+                    if (match.containsKey("otel." + key)) carrier.put(key, str(match.get("otel." + key)));
+                }
+                try (var operation = Telemetry.start("saga.provisioning.timeout", Telemetry.restore(carrier))) {
                 UUID matchId = UUID.fromString(matchIdStr);
                 UUID corrId = UUID.fromString(str(match.get("correlationId")));
+                Telemetry.annotate(matchIdStr, null, corrId.toString());
+                operation.span.setStatus(StatusCode.ERROR, "PROVISIONING_TIMEOUT");
                 log.warn("Provisioning timeout expired for matchId={}, triggering saga compensation", matchId);
                 compensateMatch(matchId, corrId, "PROVISIONING_TIMEOUT");
                 emitCancel(matchId, corrId, "PROVISIONING_TIMEOUT");
+                }
             }
         }
     }
 
     private void compensateMatch(UUID matchId, UUID correlationId, String reason) {
+        try (var operation = Telemetry.start("saga.compensate", Context.current())) {
+        Telemetry.annotate(matchId.toString(), null, correlationId.toString());
+        operation.span.setAttribute("pong.saga.reason", reason);
         String matchKey = MATCH_PREFIX + matchId;
         Map<Object, Object> match = redis.opsForHash().entries(matchKey);
         if (match.isEmpty()) {
@@ -439,6 +385,9 @@ public class MatchmakingService {
 
         log.info("Saga compensated for matchId={} reason={} (correlationId={}): arena slot & player locks released",
                 matchId, reason, correlationId);
+        Telemetry.count("pong.saga.compensations", reason);
+        operation.span.setAttribute("pong.saga.compensated", true);
+        }
     }
 
     private void emitCancel(UUID matchId, UUID correlationId, String reason) {

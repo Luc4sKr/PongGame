@@ -1,0 +1,92 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: rabbitmq
+          scrape_interval: 5s
+          metrics_path: /metrics/per-object
+          static_configs:
+            - targets: [rabbitmq:15692]
+        - job_name: collector
+          scrape_interval: 5s
+          static_configs:
+            - targets: [127.0.0.1:8888]
+  http_check:
+    collection_interval: 5s
+    targets:
+      - endpoint: http://auth:8080/health
+      - endpoint: http://player:8080/health
+      - endpoint: http://matchmaking:8080/health
+      - endpoint: http://game-1:8080/health
+      - endpoint: http://game-2:8080/health
+      - endpoint: http://gateway/health
+      - endpoint: http://frontend/health
+  postgresql/auth:
+    endpoint: postgres-auth:5432
+    transport: tcp
+    username: pong_auth
+    password: ${env:AUTH_DB_PASSWORD}
+    databases: [pong_auth]
+    collection_interval: 10s
+    tls:
+      insecure: true
+  postgresql/player:
+    endpoint: postgres-player:5432
+    transport: tcp
+    username: pong_player
+    password: ${env:PLAYER_DB_PASSWORD}
+    databases: [pong_player]
+    collection_interval: 10s
+    tls:
+      insecure: true
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+    spike_limit_mib: 96
+  transform/privacy:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - delete_key(attributes, "url.query")
+          - delete_key(attributes, "url.full")
+          - delete_key(attributes, "http.url")
+          - delete_key(attributes, "http.target")
+          - delete_key(attributes, "db.statement")
+          - delete_key(attributes, "db.query.text")
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+exporters:
+  otlp_http/traces:
+    endpoint: http://127.0.0.1:4418
+  otlp_http/metrics:
+    endpoint: http://127.0.0.1:9090/api/v1/otlp
+  otlp_http/logs:
+    endpoint: http://127.0.0.1:3100/otlp
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /ready
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/privacy, batch]
+      exporters: [otlp_http/traces]
+    metrics:
+      receivers: [otlp, prometheus, http_check, postgresql/auth, postgresql/player]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/metrics]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/logs]

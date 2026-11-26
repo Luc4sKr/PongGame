@@ -2,6 +2,7 @@ package com.ponggame.matchmaking.messaging;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ponggame.matchmaking.observability.Telemetry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -60,9 +62,10 @@ public class RedisOutboxPublisher {
                     Instant.now(),
                     payloadNode);
             String envelopeJson = objectMapper.writeValueAsString(envelope);
-            OutboxRecord record = new OutboxRecord(routingKey, envelopeJson);
+            Telemetry.annotate(payloadNode.path("matchId").asText(null), messageId.toString(), correlationId.toString());
+            OutboxRecord record = new OutboxRecord(routingKey, envelopeJson, Telemetry.capture());
             redis.opsForList().rightPush(OUTBOX_KEY, objectMapper.writeValueAsString(record));
-            drainOutbox();
+            // The scheduled publisher owns broker I/O, including reconnects during an outage.
             return messageId;
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to enqueue outbox event " + eventType, ex);
@@ -86,14 +89,33 @@ public class RedisOutboxPublisher {
                     return;
                 }
                 OutboxRecord record = objectMapper.readValue(raw, OutboxRecord.class);
+                try (var operation = Telemetry.start("outbox.publish " + record.routingKey(), Telemetry.restore(record.traceContext()))) {
+                var envelope = objectMapper.readTree(record.bodyJson());
+                Telemetry.annotate(envelope.path("payload").path("matchId").asText(null), envelope.path("messageId").asText(), envelope.path("correlationId").asText());
+                operation.span.setAttribute("messaging.system", "rabbitmq");
+                operation.span.setAttribute("messaging.destination.name", eventsExchange);
+                operation.span.setAttribute("messaging.rabbitmq.destination.routing_key", record.routingKey());
                 Message message = MessageBuilder
                         .withBody(record.bodyJson().getBytes(StandardCharsets.UTF_8))
                         .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                         .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
                         .build();
-                rabbitTemplate.send(eventsExchange, record.routingKey(), message);
+                Telemetry.capture().forEach((key, value) -> message.getMessageProperties().setHeader(key, value));
+                try {
+                rabbitTemplate.invoke(channel -> {
+                    channel.send(eventsExchange, record.routingKey(), message);
+                    channel.waitForConfirmsOrDie(5000);
+                    return null;
+                });
                 redis.opsForList().leftPop(OUTBOX_KEY);
                 log.info("Published outbox event to exchange={} routingKey={}", eventsExchange, record.routingKey());
+                } catch (Exception error) {
+                    operation.error(error);
+                    Telemetry.count("pong.outbox.publish", "retry");
+                    log.warn("Outbox publish failed; record retained for retry", error);
+                    throw error;
+                }
+                }
             }
         } catch (Exception ex) {
             log.warn("RabbitMQ unavailable while draining outbox (will retry automatically): {}", ex.getMessage());
@@ -102,5 +124,5 @@ public class RedisOutboxPublisher {
         }
     }
 
-    public record OutboxRecord(String routingKey, String bodyJson) {}
+    public record OutboxRecord(String routingKey, String bodyJson, Map<String, String> traceContext) {}
 }

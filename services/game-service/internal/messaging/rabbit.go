@@ -15,7 +15,11 @@ import (
 	"github.com/ponggame/game-service/internal/config"
 	"github.com/ponggame/game-service/internal/engine"
 	"github.com/ponggame/game-service/internal/store"
+	"github.com/ponggame/game-service/internal/telemetry"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const maxDeliveryRetries = 3
@@ -130,6 +134,11 @@ func (b *Broker) connectAndConsume(ctx context.Context) error {
 		return err
 	}
 
+	if err := pubCh.Confirm(false); err != nil {
+		_ = conn.Close()
+		return err
+	}
+
 	if err := b.declareTopology(consumeCh); err != nil {
 		_ = consumeCh.Close()
 		_ = pubCh.Close()
@@ -233,6 +242,8 @@ func (b *Broker) declareTopology(ch *amqp.Channel) error {
 }
 
 func (b *Broker) handleMatchCreatedDelivery(ctx context.Context, d amqp.Delivery) {
+	ctx, span := deliverySpan(ctx, d, b.cfg.MatchCreatedQueue)
+	defer span.End()
 	var env RawEnvelope
 	if err := json.Unmarshal(d.Body, &env); err != nil || env.MessageID == "" || env.Type != "match.created" || env.Version < 1 {
 		b.retryOrDeadLetter(d, b.cfg.MatchCreatedQueue, fmt.Errorf("invalid match.created envelope: %v", err))
@@ -245,6 +256,7 @@ func (b *Broker) handleMatchCreatedDelivery(ctx context.Context, d amqp.Delivery
 		b.retryOrDeadLetter(d, b.cfg.MatchCreatedQueue, fmt.Errorf("invalid match.created payload: %v", err))
 		return
 	}
+	span.SetAttributes(attribute.String("pong.match.id", payload.MatchID), attribute.String("messaging.message.id", env.MessageID), attribute.String("pong.correlation.id", env.CorrelationID))
 
 	// R1 / F3 Idempotency check
 	done, err := b.store.IsMessageDone(ctx, env.MessageID)
@@ -253,6 +265,8 @@ func (b *Broker) handleMatchCreatedDelivery(ctx context.Context, d amqp.Delivery
 		return
 	}
 	if done {
+		span.SetAttributes(attribute.Bool("pong.message.duplicate", true))
+		telemetry.Count(ctx, "pong.game.messages", "duplicate")
 		log.Printf("[rabbit:%s] duplicate match.created messageId=%s ignored", b.cfg.InstanceID, env.MessageID)
 		_ = d.Ack(false)
 		return
@@ -267,7 +281,13 @@ func (b *Broker) handleMatchCreatedDelivery(ctx context.Context, d amqp.Delivery
 	}
 
 	// R5 / F1 / F7 Simulated slow/unstable external Arena Provisioner dependency
-	if depErr := b.simulateUnstableDependency(ctx, payload.MatchID); depErr != nil {
+	log.Printf("[rabbit:%s] processing match.created matchId=%s messageId=%s redelivered=%t",
+		b.cfg.InstanceID, payload.MatchID, env.MessageID, d.Redelivered)
+	telemetry.Event(ctx, "Processing match.created", "pong.match.id", payload.MatchID, "messaging.message.id", env.MessageID, "messaging.rabbitmq.message.redelivered", d.Redelivered)
+	if depErr := b.simulateUnstableDependency(ctx, payload.MatchID, payload.Player1.PlayerID); depErr != nil {
+		telemetry.Error(span, depErr)
+		telemetry.Count(ctx, "pong.game.messages", "dependency_failed")
+		telemetry.Event(ctx, "Dependency failed; requesting saga compensation", "pong.match.id", payload.MatchID, "error.type", depErr.Error())
 		log.Printf("[rabbit:%s] unstable dependency failed for match %s: %v", b.cfg.InstanceID, payload.MatchID, depErr)
 		failEnv := engine.EventEnvelope{
 			MessageID:     uuid.NewString(),
@@ -303,6 +323,7 @@ func (b *Broker) handleMatchCreatedDelivery(ctx context.Context, d amqp.Delivery
 		winningScore,
 		b.cfg.InstanceID,
 	)
+	state.TraceContext = telemetry.Capture(ctx)
 
 	if err := b.store.SaveMatch(ctx, state); err != nil {
 		b.store.ReleaseMessageClaim(ctx, env.MessageID)
@@ -330,11 +351,15 @@ func (b *Broker) handleMatchCreatedDelivery(ctx context.Context, d amqp.Delivery
 
 	_ = b.store.MarkMessageDone(ctx, env.MessageID)
 	_ = d.Ack(false)
+	telemetry.Count(ctx, "pong.game.messages", "provisioned")
+	telemetry.Event(ctx, "Match provisioned", "pong.match.id", payload.MatchID, "messaging.message.id", env.MessageID)
 	log.Printf("[rabbit:%s] provisioned match %s (%s vs %s) (messageId=%s, correlationId=%s)",
 		b.cfg.InstanceID, payload.MatchID, payload.Player1.Username, payload.Player2.Username, env.MessageID, env.CorrelationID)
 }
 
 func (b *Broker) handleMatchCancelDelivery(ctx context.Context, d amqp.Delivery) {
+	ctx, span := deliverySpan(ctx, d, b.cfg.MatchCancelQueue)
+	defer span.End()
 	var env RawEnvelope
 	if err := json.Unmarshal(d.Body, &env); err != nil || env.MessageID == "" || env.Type != "match.cancel" {
 		b.retryOrDeadLetter(d, b.cfg.MatchCancelQueue, fmt.Errorf("invalid match.cancel envelope: %v", err))
@@ -345,6 +370,7 @@ func (b *Broker) handleMatchCancelDelivery(ctx context.Context, d amqp.Delivery)
 		b.retryOrDeadLetter(d, b.cfg.MatchCancelQueue, fmt.Errorf("invalid match.cancel payload: %v", err))
 		return
 	}
+	span.SetAttributes(attribute.String("pong.match.id", payload.MatchID), attribute.String("messaging.message.id", env.MessageID), attribute.String("pong.cancel.reason", payload.Reason))
 	done, _ := b.store.IsMessageDone(ctx, env.MessageID)
 	if done {
 		_ = d.Ack(false)
@@ -356,12 +382,36 @@ func (b *Broker) handleMatchCancelDelivery(ctx context.Context, d amqp.Delivery)
 	}
 	_ = b.store.MarkMessageDone(ctx, env.MessageID)
 	_ = d.Ack(false)
+	telemetry.Event(ctx, "Arena cancelled", "pong.match.id", payload.MatchID, "pong.cancel.reason", payload.Reason)
 	log.Printf("[rabbit:%s] cancelled match %s (reason=%s)", b.cfg.InstanceID, payload.MatchID, payload.Reason)
 }
 
-func (b *Broker) simulateUnstableDependency(ctx context.Context, matchID string) error {
+func (b *Broker) simulateUnstableDependency(ctx context.Context, matchID, playerID string) (result error) {
+	ctx, span := telemetry.Start(ctx, "arena.provision", attribute.String("pong.match.id", matchID))
+	started := time.Now()
+	defer func() {
+		telemetry.DependencyDuration(ctx, time.Since(started).Seconds(), result != nil)
+		if result != nil {
+			telemetry.Error(span, result)
+		}
+		span.End()
+	}()
 	minMs := b.cfg.DependencyMinLatencyMs
 	maxMs := b.cfg.DependencyMaxLatencyMs
+	failureRate := b.cfg.DependencyFailureRate
+	if b.cfg.AWSEndpointURL != "" {
+		fault, err := b.store.DemoDependency(ctx, playerID)
+		if err != nil {
+			return fmt.Errorf("demo dependency configuration: %w", err)
+		}
+		if fault != nil {
+			minMs, maxMs, failureRate = fault.DelayMs, fault.DelayMs, 0
+			if fault.Fail {
+				failureRate = 1
+			}
+			log.Printf("[dependency:%s] demo override playerId=%s matchId=%s", b.cfg.InstanceID, playerID, matchID)
+		}
+	}
 	if maxMs < minMs {
 		maxMs = minMs
 	}
@@ -371,14 +421,14 @@ func (b *Broker) simulateUnstableDependency(ctx context.Context, matchID string)
 	}
 	if delayMs > 0 {
 		log.Printf("[dependency:%s] provisioning arena for match %s (simulated latency=%dms, failureRate=%.2f)",
-			b.cfg.InstanceID, matchID, delayMs, b.cfg.DependencyFailureRate)
+			b.cfg.InstanceID, matchID, delayMs, failureRate)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(time.Duration(delayMs) * time.Millisecond):
 		}
 	}
-	if b.cfg.DependencyFailureRate > 0 && rand.Float64() < b.cfg.DependencyFailureRate {
+	if failureRate > 0 && rand.Float64() < failureRate {
 		return errors.New("SIMULATED_ARENA_DEPENDENCY_FAILURE")
 	}
 	return nil
@@ -446,33 +496,75 @@ func (b *Broker) runOutboxDrainer(ctx context.Context) {
 				if err != nil || item == nil {
 					break
 				}
-				if err := b.publishRaw(item.RoutingKey, []byte(item.Body)); err != nil {
+				publishCtx := telemetry.Restore(ctx, item.TraceContext)
+				if err := b.publishRaw(publishCtx, item.RoutingKey, []byte(item.Body)); err != nil {
 					log.Printf("[rabbit:%s] outbox publish failed (will retry): %v", b.cfg.InstanceID, err)
 					break
 				}
-				_ = b.store.PopOutbox(ctx)
+				if err := b.store.RemovePublished(ctx, item); err != nil {
+					log.Printf("[rabbit:%s] outbox removal failed: %v", b.cfg.InstanceID, err)
+					break
+				}
 				log.Printf("[rabbit:%s] published outbox event routingKey=%s", b.cfg.InstanceID, item.RoutingKey)
 			}
 		}
 	}
 }
 
-func (b *Broker) publishRaw(routingKey string, body []byte) error {
+func (b *Broker) publishRaw(ctx context.Context, routingKey string, body []byte) (result error) {
+	ctx, span := otel.Tracer(telemetry.Scope).Start(ctx, routingKey+" publish", trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(attribute.String("messaging.system", "rabbitmq"), attribute.String("messaging.destination.name", b.cfg.RabbitMQEventsExchange), attribute.String("messaging.rabbitmq.destination.routing_key", routingKey), attribute.String("server.address", "rabbitmq")))
+	defer func() {
+		if result != nil {
+			telemetry.Error(span, result)
+		}
+		span.End()
+	}()
+	headers := amqp.Table{}
+	for k, v := range telemetry.Capture(ctx) {
+		headers[k] = v
+	}
 	b.mu.Lock()
 	ch := b.pubCh
 	b.mu.Unlock()
 	if ch == nil {
 		return errors.New("rabbitmq channel not connected")
 	}
-	return ch.Publish(
+	confirm, err := ch.PublishWithDeferredConfirm(
 		b.cfg.RabbitMQEventsExchange,
 		routingKey,
 		false,
 		false,
 		amqp.Publishing{
+			Headers:      headers,
 			ContentType:  "application/json",
 			DeliveryMode: amqp.Persistent,
 			Body:         body,
 		},
 	)
+	if err != nil {
+		return err
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	acked, err := confirm.WaitContext(waitCtx)
+	if err != nil {
+		return err
+	}
+	if !acked {
+		return errors.New("broker rejected outbox event")
+	}
+	return nil
+}
+
+func deliverySpan(ctx context.Context, d amqp.Delivery, queue string) (context.Context, trace.Span) {
+	carrier := map[string]string{}
+	for _, key := range []string{"traceparent", "tracestate"} {
+		if value, ok := d.Headers[key]; ok {
+			carrier[key] = fmt.Sprint(value)
+		}
+	}
+	ctx = telemetry.Restore(ctx, carrier)
+	return otel.Tracer(telemetry.Scope).Start(ctx, queue+" process", trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(attribute.String("messaging.system", "rabbitmq"), attribute.String("messaging.destination.name", queue), attribute.Bool("messaging.rabbitmq.message.redelivered", d.Redelivered), attribute.String("server.address", "rabbitmq")))
 }

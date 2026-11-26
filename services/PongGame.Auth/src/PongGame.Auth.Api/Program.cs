@@ -1,4 +1,7 @@
 using System.Net;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using PongGame.Auth.Application;
@@ -6,6 +9,26 @@ using PongGame.Auth.Infrastructure;
 using PongGame.Auth.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
+if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithTracing(tracing => tracing
+            .AddAspNetCoreInstrumentation(options => options.Filter = context => context.Request.Path != "/health")
+            .AddHttpClientInstrumentation()
+            .AddSource("Npgsql")
+            .AddOtlpExporter())
+        .WithMetrics(metrics => metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddOtlpExporter());
+    builder.Logging.AddOpenTelemetry(logging =>
+    {
+        logging.IncludeFormattedMessage = true;
+        logging.IncludeScopes = true;
+        logging.AddOtlpExporter();
+    });
+}
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
@@ -36,6 +59,12 @@ await app.Services.MigrateAuthDatabaseAsync();
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseRouting();
+app.Use(async (context, next) =>
+{
+    if (System.Diagnostics.Activity.Current is { } activity)
+        context.Response.Headers["X-Trace-Id"] = activity.TraceId.ToString();
+    await next();
+});
 app.UseRateLimiter();
 app.MapControllers();
 app.MapGet("/api/auth/jwks", () => tokens.PublicKeys);

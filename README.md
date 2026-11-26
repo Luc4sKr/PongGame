@@ -12,17 +12,31 @@ A polyglot, event-driven distributed Pong platform built with **C# (.NET 10)**, 
 - **Game Service** (`services/game-service` — **Go 1.24**, 2+ replicas): Real-time WebSocket Pong engine synchronized via **ElastiCache Redis** distributed memory & Pub/Sub, lease-based failover across replicas, competing RabbitMQ consumers, simulated unstable dependency, and KMS public-key JWT validation.
 - **Contracts** (`contracts/`): Explicit AsyncAPI 3.0 specification and JSON Schemas using the standard event envelope.
 - **Infrastructure** (`infra/terraform/`): Terraform IaC provisioning AWS KMS asymmetric key + alias, ElastiCache Redis cluster, and SSM parameters against MiniStack (or real AWS).
+- **Observability** (`infra/observability/`): OpenTelemetry Collector, Grafana, Tempo, Prometheus, and Loki. The Grafana dashboard shows traces from joining the queue to recording the match result.
 
 The [relational database diagram](docs/modelo-relacional.svg) shows the Auth and Player tables, foreign keys, indexes, and how the two services share the player's identity.
 
 ## Quick Start
 
+Use Docker Compose v2 with Linux containers (Docker Desktop with WSL 2 on Windows).
+
+Windows (PowerShell):
+
+```powershell
+# Optional, only if .env does not exist:
+Copy-Item .env.example .env
+docker compose up --build -d --wait
+```
+
+Linux:
+
 ```bash
 cp .env.example .env
 docker compose up --build -d --wait
-python3 scripts/e2e_test.py
 ```
 
 Then open **http://localhost:8080** in two browser tabs side-by-side to register/login two players and play a real-time distributed Pong match!
 
-For full setup instructions (Docker & Podman, Terraform, API/WebSocket protocol, and distributed failure scenarios F1–F8), see **[docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md)**.
+Open the **[PongGame dashboard](http://127.0.0.1:3000/d/ponggame)**, click a Trace ID under **Traces de partidas**, and choose **Abrir trace da partida**. See the [tracing walkthrough](docs/OBSERVABILIDADE.md) for the expected spans by service.
+
+See the [deployment and API guide](docs/HOW_TO_RUN.md) and the [failure diagnosis guide F1–F8](docs/DEMO_FALHAS.md).

@@ -3,6 +3,7 @@ package com.ponggame.matchmaking.messaging;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ponggame.matchmaking.service.MatchmakingService;
+import com.ponggame.matchmaking.observability.Telemetry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
@@ -55,6 +56,10 @@ public class MatchEventsConsumer {
     private EventEnvelope parseAndValidate(Message rawMessage, String expectedType) throws Exception {
         String body = new String(rawMessage.getBody(), StandardCharsets.UTF_8);
         EventEnvelope envelope = objectMapper.readValue(body, EventEnvelope.class);
+        if (envelope != null) {
+            Telemetry.annotate(envelope.payload() == null ? null : envelope.payload().path("matchId").asText(null),
+                    String.valueOf(envelope.messageId()), String.valueOf(envelope.correlationId()));
+        }
         if (envelope == null
                 || envelope.messageId() == null
                 || envelope.correlationId() == null

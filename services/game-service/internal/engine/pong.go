@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ponggame/game-service/internal/store"
+	"github.com/ponggame/game-service/internal/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -159,6 +161,11 @@ func (m *Manager) EnsureSimulationRunning(parentCtx context.Context, matchID str
 	m.mu.Unlock()
 
 	log.Printf("[engine:%s] acquired simulation lease for match %s", m.instanceID, matchID)
+	if state, err := m.store.GetMatch(parentCtx, matchID); err == nil {
+		ctx, span := telemetry.Start(telemetry.Restore(parentCtx, state.TraceContext), "game.lease.acquire", attribute.String("pong.match.id", matchID))
+		telemetry.Event(ctx, "Simulation lease acquired", "pong.match.id", matchID, "service.instance.id", m.instanceID)
+		span.End()
+	}
 	go m.runLoop(simCtx, matchID)
 }
 
@@ -254,9 +261,8 @@ func (m *Manager) runLoop(ctx context.Context, matchID string) {
 				} else {
 					// Broadcast waiting status at ~5Hz so clients see opponent connection updates
 					state.Tick++
-					if state.Tick%6 == 0 {
-						_ = m.store.SaveMatch(ctx, state)
-						_ = m.store.PublishState(ctx, matchID, ToFrame(state, m.instanceID))
+					if state.Tick%6 == 0 && !m.publishFrame(ctx, state) {
+						return
 					}
 					continue
 				}
@@ -279,16 +285,31 @@ func (m *Manager) runLoop(ctx context.Context, matchID string) {
 				return
 			}
 
-			if err := m.store.SaveMatch(ctx, state); err != nil {
-				log.Printf("[engine:%s] failed saving state for match %s: %v", m.instanceID, matchID, err)
+			if !m.publishFrame(ctx, state) {
+				return
 			}
-			_ = m.store.PublishState(ctx, matchID, ToFrame(state, m.instanceID))
 		}
 	}
 }
 
+func (m *Manager) publishFrame(ctx context.Context, state *store.MatchState) bool {
+	written, err := m.store.SaveFrame(ctx, state)
+	if err != nil {
+		log.Printf("[engine:%s] failed saving frame for match %s: %v", m.instanceID, state.MatchID, err)
+		return false
+	}
+	if written {
+		_ = m.store.PublishState(ctx, state.MatchID, ToFrame(state, m.instanceID))
+	}
+	return written
+}
+
 func (m *Manager) finishMatch(ctx context.Context, state *store.MatchState, winnerID *string, reason string) {
 	state.Status = "FINISHED"
+	ctx, span := telemetry.Start(telemetry.Restore(ctx, state.TraceContext), "game.match.finish", attribute.String("pong.match.id", state.MatchID), attribute.String("pong.finish.reason", reason))
+	defer span.End()
+	telemetry.Event(ctx, "Match finished", "pong.match.id", state.MatchID, "pong.finish.reason", reason)
+	telemetry.Count(ctx, "pong.game.matches.finished", reason)
 	state.WinnerID = winnerID
 	state.FinishReason = reason
 	state.InstanceID = m.instanceID

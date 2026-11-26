@@ -31,8 +31,10 @@ import struct
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
+from scenario_trace import trace_headers
 
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://127.0.0.1:8080")
 RABBIT_API = os.environ.get("RABBITMQ_API", "http://127.0.0.1:15672/api")
@@ -42,7 +44,7 @@ RABBIT_PASS = os.environ.get("RABBITMQ_PASSWORD", "pong_secret")
 
 def http_json(method: str, url: str, body=None, token: str | None = None, basic_auth=None):
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", **trace_headers()}
     if data is not None:
         headers["Content-Type"] = "application/json"
     if token:
@@ -76,6 +78,7 @@ class SimpleWSClient:
             f"Upgrade: websocket\r\n"
             f"Connection: Upgrade\r\n"
             f"Authorization: Bearer {token}\r\n"
+            + "".join(f"{k}: {v}\r\n" for k, v in trace_headers().items()) +
             f"Sec-WebSocket-Key: {key}\r\n"
             f"Sec-WebSocket-Version: 13\r\n\r\n"
         )
@@ -210,8 +213,9 @@ def main():
     print(f"   OK (matchId={match_id}, wsPath={ws_path})")
 
     print("5. Playing real-time Pong over WebSockets through Nginx load-balanced Go replicas...")
-    ws1 = SimpleWSClient("127.0.0.1", 8080, ws_path, t1)
-    ws2 = SimpleWSClient("127.0.0.1", 8080, ws_path, t2)
+    gateway = urllib.parse.urlsplit(GATEWAY_URL)
+    ws1 = SimpleWSClient(gateway.hostname, gateway.port or 80, ws_path, t1)
+    ws2 = SimpleWSClient(gateway.hostname, gateway.port or 80, ws_path, t2)
     try:
         w1 = ws1.recv_json()
         w2 = ws2.recv_json()
@@ -363,4 +367,25 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from service_logs import ServiceLogs
+    from scenario_trace import ScenarioTrace
+
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    logs = ServiceLogs(["docker", "compose"], Path(__file__).resolve().parents[1],
+                       datetime.now(timezone.utc).isoformat(),
+                       ["rabbitmq", "matchmaking", "player", "game-1", "game-2"],
+                       lambda line: print("[SERVIÇO] " + line, flush=True))
+    scenario_trace = ScenarioTrace("E2E")
+    print("Trace ID:", scenario_trace.trace_id, "\nGrafana:", scenario_trace.url, flush=True)
+    failure = None
+    try:
+        main()
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        logs.close()
+        scenario_trace.finish(failure)

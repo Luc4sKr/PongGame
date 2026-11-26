@@ -441,3 +441,6 @@ crash.log
 # Node / Frontend
 node_modules/
 frontend/dist/
+
+# Evidence from local F1-F8 demonstrations
+/artifacts/demo/
