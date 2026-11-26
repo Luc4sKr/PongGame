@@ -1,6 +1,6 @@
 # How to Run Distributed PongGame
 
-This document explains how to run, configure, test, and demonstrate the **Distributed PongGame** architecture locally using **Docker** or **Podman**, **MiniStack** (AWS emulator), **Terraform** (Infrastructure as Code), and **RabbitMQ**.
+This document explains how to run, configure, and observe the **Distributed PongGame** architecture locally using **Docker** or **Podman**, **MiniStack** (AWS emulator), **Terraform** (Infrastructure as Code), and **RabbitMQ**.
 
 ---
 
@@ -16,6 +16,7 @@ This document explains how to run, configure, test, and demonstrate the **Distri
 | **Game Service (x2+)** | Go 1.24 (`services/game-service`) | ElastiCache Redis distributed memory + Pub/Sub (no SQL DB) | Multi-instance real-time Pong simulation, WebSocket state streaming, lease-based failover, competing RabbitMQ consumers, simulated unstable dependency |
 | **Message Broker** | RabbitMQ 4 (`rabbitmq`) | Durable exchanges/queues + DLX/DLQ | Event-driven choreography (`pong.events`, `pong.dlx`) |
 | **Cloud Services** | MiniStack (`ministack:4566`) provisioned by **Terraform** (`infra/terraform`) | AWS KMS (`RSA_2048 SIGN_VERIFY`), AWS ElastiCache (Redis 7), AWS SSM Parameter Store | Cloud services emulated locally (zero hardcoded endpoints; same code runs on AWS) |
+| **Observability** | OpenTelemetry Collector, Grafana, Tempo, Prometheus, and Loki (`infra/observability/`) | `observability_data` | Distributed traces, metrics, logs, and local alerts |
 
 ### Asymmetric JWT Authentication with AWS KMS
 1. **Terraform** creates an asymmetric `RSA_2048` KMS key (`key_usage = "SIGN_VERIFY"`) with alias `alias/ponggame-jwt-signing`.
@@ -34,7 +35,6 @@ This document explains how to run, configure, test, and demonstrate the **Distri
 ## 2. Prerequisites
 
 - **Docker** (24+) with `docker compose` v2, **or** **Podman** with `podman compose` / `docker-compose`
-- Optional (for running automated E2E test): **Python 3.10+** (standard library only, no `pip install` needed)
 - Optional (for running Terraform manually outside containers): **Terraform >= 1.6**
 
 ---
@@ -42,6 +42,17 @@ This document explains how to run, configure, test, and demonstrate the **Distri
 ## 3. Quick Start (Single Command)
 
 ### Option A: Docker Compose (Recommended)
+
+On Windows, start Docker Desktop with the WSL 2 backend and Linux containers.
+Run from the project root in PowerShell:
+
+```powershell
+# Optional: only copy if .env does not already exist
+Copy-Item .env.example .env
+docker compose up --build -d --wait
+```
+
+On Linux, use Docker Engine with the Compose v2 plugin, from the project root:
 
 ```bash
 # Optional: customize environment variables
@@ -63,6 +74,15 @@ podman compose up --build -d --wait
 > **Note on SELinux (Fedora / RHEL):** `compose.yaml` already includes `security_opt: [label:disable]` for MiniStack and `:ro,z` for the Nginx bind mount so it works out of the box on SELinux-enforcing Linux hosts.
 
 ### Verify All Services Are Healthy
+
+If RabbitMQ previously exited with `Error when reading /var/lib/rabbitmq/.erlang.cookie: eacces`,
+run `docker compose up --build -d --wait` again with the corrected Compose file.
+The health check now runs as the `rabbitmq` user; running it as root could create
+the cookie with owner root and mode `0400` before the broker started. The image's
+entrypoint repairs ownership on startup. No volume deletion is needed.
+This correction applies to both Docker Desktop on Windows and Docker Engine on Linux.
+
+`terraform-init` should finish with exit code 0; it is a one-shot provisioning task.
 
 ```bash
 docker compose ps
@@ -105,23 +125,14 @@ docker run --rm --network host -v "$(pwd)/infra/terraform:/work:z" -w /work \
 
 ---
 
-## 5. Automated End-to-End Verification
+## 5. Follow a Match Across Services
 
-Run the built-in Python verification script (uses stdlib only):
+1. Open the game at `http://localhost:8080` in two tabs. Register and sign in as a different player in each tab.
+2. Join the matchmaking queue from both tabs. Play a match to completion or select **Forfeit** in the arena.
+3. Open the [PongGame dashboard](http://127.0.0.1:3000/d/ponggame), click the latest Trace ID under **Traces de partidas**, and choose **Abrir trace da partida**.
+4. In the **Trace da partida** view, expand the branches for Matchmaking, Game, and Player. The trace includes the HTTP request, RabbitMQ publication and consumption, and the transaction that records the result.
 
-```bash
-python3 scripts/e2e_test.py
-```
-
-This tests the entire distributed lifecycle:
-1. Auth registration & login with KMS `RS256` signing
-2. Player Service KMS public-key JWT validation
-3. Async `202 Accepted` matchmaking queue & RabbitMQ `match.created` -> `match.ready`
-4. Dual-player real-time WebSocket Pong gameplay across load-balanced Go replicas (`game-1` / `game-2`)
-5. Multi-consumer `match.finished` event (Player Service stats/history + Matchmaking slot release)
-6. **R2 / F5**: 30 parallel arena slot reservations against 10 slots -> strictly 10 `201 Created` & 20 `409 Conflict`
-7. **R1 / F3**: 5 duplicate `match.finished` deliveries with identical `messageId` -> strictly 1 stat update
-8. **F4**: Poison message rejected after retries and routed to `player.match.finished.dlq`
+See [distributed tracing](OBSERVABILIDADE.md) for the span names and TraceQL queries.
 
 ---
 
@@ -190,7 +201,7 @@ See `contracts/asyncapi.yaml` and `contracts/*.schema.json` for all schemas:
 
 ## 8. Demonstrating Distributed Failure Scenarios (F1–F8)
 
-The [live demonstration guide](DEMO_FALHAS.md) includes a PowerShell command for each scenario, the evidence to show, and instructions for inspecting the running databases and RabbitMQ.
+The [failure diagnosis guide](DEMO_FALHAS.md) maps each scenario to the evidence in Grafana, RabbitMQ, and the service state.
 
 ---
 

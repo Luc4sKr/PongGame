@@ -9,7 +9,6 @@ import time
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
 from threading import Barrier
 
 from demo_ambiente import Demo, equal, now, wait
@@ -53,8 +52,9 @@ def f2(d):
     equal("réplica com a reserva", d.redis("GET", "game:msg:claim:" + message), replica)
     d.show("RabbitMQ confirmou 1 entrega sem ACK. Encerrando com SIGKILL", replica)
     d.compose("kill", "-s", "SIGKILL", replica)
-    survivor, = set(d.games) - {replica}
-    d.evidence_lines([survivor], "processing match.created", message, "redelivered=true", timeout=55)
+    survivors = sorted(set(d.games) - {replica})
+    line, = d.evidence_lines(survivors, "processing match.created", message, "redelivered=true", timeout=65)
+    survivor = re.search(r"\[rabbit:(game-\d+)\]", line).group(1)
     d.tickets(pair, "READY")
     d.evidence_lines(d.games, "provisioned match", match, message)
     equal("marcador Redis do consumidor", d.redis("GET", "game:msg:done:" + message), survivor)
@@ -107,9 +107,9 @@ def f4(d):
     d.evidence_lines(["player"], "Rejecting invalid match.finished payload", bad["messageId"], count=3)
     def read_dlq():
         items = d.rabbit("POST", "/queues/%2F/player.match.finished.dlq/get",
-                         {"count": 1, "ackmode": "ack_requeue_true", "encoding": "auto", "truncate": 100000})
+                         {"count": 10000, "ackmode": "ack_requeue_true", "encoding": "auto", "truncate": 100000})
         return [json.loads(item["payload"]) for item in items]
-    wait("evento original na DLQ", read_dlq, lambda items: items == [bad])
+    wait("evento original na DLQ", read_dlq, lambda items: bad in items)
     d.show("Mensagem encontrada em player.match.finished.dlq", bad["messageId"])
     equal("evento inválido sem efeito", stats(d, bad), "0|0|0|0|0")
     result = wait("evento válido persistido", lambda: stats(d, good), lambda s: s == "1|1|1|1|1")
@@ -120,22 +120,26 @@ def f5(d):
     _, token = d.user()
     path = "/api/matchmaking/arenas/reserve"
     equal("vagas ocupadas antes", d.slots(), 0)
-    barrier = Barrier(100, timeout=20)
+    clients = max(100, d.capacity * 2)
+    barrier = Barrier(clients, timeout=20)
     def reserve(_):
         barrier.wait()
-        return http_json("POST", d.gateway + path, token=token)
-    d.show("Liberando 100 clientes simultâneos para 10 vagas")
-    with ThreadPoolExecutor(max_workers=100) as pool:
-        responses = list(pool.map(reserve, range(100)))
+        code, body = http_json("POST", d.gateway + path, token=token)
+        if code == 201:
+            d.reservations[body["reservationId"]] = token
+        return code, body
+    d.show("Clientes simultâneos / capacidade configurada", (clients, d.capacity))
+    with ThreadPoolExecutor(max_workers=clients) as pool:
+        responses = list(pool.map(reserve, range(clients)))
     totals = Counter(code for code, _ in responses)
     d.show("Contagem HTTP", dict(totals))
-    equal("respostas HTTP", totals, {201: 10, 409: 90})
+    equal("respostas HTTP", totals, {201: d.capacity, 409: clients - d.capacity})
     ids = {r["reservationId"] for code, r in responses if code == 201}
-    equal("quantidade de reservas únicas", len(ids), 10)
+    equal("quantidade de reservas únicas", len(ids), d.capacity)
     equal("reservas no Redis", set(d.redis("--scan", "--pattern", "mm:reservation:*").splitlines()),
           {"mm:reservation:" + rid for rid in ids})
-    equal("vagas ocupadas no Redis", d.slots(), 10)
-    d.show("10 reservas verificadas no Redis", sorted(ids))
+    equal("vagas ocupadas no Redis", d.slots(), d.capacity)
+    d.show("Reservas verificadas no Redis", sorted(ids))
     d.inspect_if_requested()
     for rid in ids:
         equal("liberação da reserva", d.api("DELETE", path + "/" + rid, token=token)["released"], True)
@@ -166,7 +170,7 @@ def f6(d):
         d.evidence_lines(d.games, "provisioned match", event["messageId"], event["payload"]["matchId"])
     for key in ("mm:outbox", "game:outbox"):
         wait(key + " vazia", lambda: d.redis("LLEN", key), lambda value: value == "0")
-    for q, n in [("game.match.created", 2), ("matchmaking.match.ready", 1), ("player.match.finished", 1)]:
+    for q, n in [("game.match.created", len(d.games)), ("matchmaking.match.ready", 1), ("player.match.finished", 1)]:
         d.consumers(q, n)
     d.show("Reconexão confirmada nas três filas. Outboxes vazias, partidas reconciliadas", len(events))
 
@@ -200,8 +204,8 @@ def f7(d):
 
 
 def f8(d):
-    d.show("Consumidores registrados em game.match.created", d.consumers("game.match.created", 3))
-    pairs = [d.pair() for _ in range(6)]
+    d.show("Consumidores registrados em game.match.created", d.consumers("game.match.created", len(d.games)))
+    pairs = [d.pair() for _ in range(min(d.capacity, 3 * len(d.games)))]
     for pair in pairs:
         d.tickets(pair, "READY")
     lines = d.lines(d.games, "provisioned match")
@@ -209,6 +213,8 @@ def f8(d):
     matches = []
     for line in lines:
         replica, match = re.search(r"\[rabbit:(game-\d+)\] provisioned match ([\w-]+)", line).groups()
+        if match not in {p.match_id for p in pairs}:
+            continue
         by_replica[replica] += 1
         matches.append(match)
         d.show("Provisionamento", line)
@@ -221,41 +227,49 @@ def f8(d):
 SCENARIOS = {"F1": f1, "F2": f2, "F3": f3, "F4": f4, "F5": f5, "F6": f6, "F7": f7, "F8": f8}
 
 
-def run(scenario, inspect, pause):
-    d = Demo(scenario, inspect)
+def run(scenario, inspect, pause, project=None):
+    d = Demo(scenario, inspect, project)
     print(f"Evidências: {d.folder}", flush=True)
     try:
-        with ExitStack() as cleanup:
-            cleanup.callback(d.compose, "down", "--volumes", "--timeout", "2")
-            cleanup.callback(d.save_logs)
+        try:
             d.start()
             if pause:
                 input("Ambiente pronto. Pressione Enter para provocar a falha... ")
             SCENARIOS[scenario](d)
             d.inspect_if_requested()
+        except BaseException as error:
+            d.show("ERRO DO CENÁRIO", str(error))
+            raise
+        finally:
+            d.finish()
     except BaseException as error:
         d.show("INTERROMPIDO" if isinstance(error, KeyboardInterrupt) else "FALHOU", str(error))
+        d.finish_trace(error)
         raise
+    d.finish_trace()
     d.show("APROVADO", scenario)
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     parser = argparse.ArgumentParser(description="Demonstrações de falhas distribuídas do PongGame")
     parser.add_argument("cenario", type=str.upper, choices=["PREPARAR", *sorted(SCENARIOS), "TODOS"])
-    parser.add_argument("--inspecionar", action="store_true", help="mantém a stack aberta até pressionar Enter")
+    parser.add_argument("--inspecionar", action="store_true", help="pausa para inspecionar evidências antes de liberar as reservas do teste")
     parser.add_argument("--aguardar", action="store_true", help="espera Enter antes de provocar a falha")
+    parser.add_argument("--projeto", help="nome do projeto Compose já em execução (padrão: Compose da raiz)")
     args = parser.parse_args()
     if args.cenario == "PREPARAR":
-        d = Demo("preparar")
-        d.show("Preparando imagens da demonstração")
-        d.compose("build", "terraform-init", "auth", "player", "matchmaking", "game-1", "frontend",
-                  timeout=1800)
-        d.compose("pull", "--policy", "missing", "gateway", "rabbitmq", "redis", "postgres-auth",
-                  "ministack", timeout=1200)
-        d.show("Imagens prontas")
+        d = Demo("preparar", project=args.projeto)
+        try:
+            d.start()
+            d.show("Ambiente existente verificado", "Nenhum container criado.")
+        finally:
+            d.finish()
+            d.finish_trace()
         return
     for scenario in sorted(SCENARIOS) if args.cenario == "TODOS" else [args.cenario]:
-        run(scenario, args.inspecionar, args.aguardar)
+        run(scenario, args.inspecionar, args.aguardar, args.projeto)
 
 
 if __name__ == "__main__":

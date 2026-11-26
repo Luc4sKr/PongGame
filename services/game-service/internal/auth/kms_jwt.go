@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/ponggame/game-service/internal/config"
+	"github.com/ponggame/game-service/internal/telemetry"
 )
 
 type PlayerClaims struct {
@@ -146,10 +147,13 @@ func (v *Verifier) refreshKey(ctx context.Context, force bool) (*rsa.PublicKey, 
 		return v.cachedKey, nil
 	}
 
+	ctx, span := telemetry.Start(ctx, "AWS.KMS.GetPublicKey")
+	defer span.End()
 	resp, err := v.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{
 		KeyId: aws.String(v.kmsKeyID),
 	})
 	if err != nil {
+		telemetry.Error(span, err)
 		return nil, err
 	}
 	pubAny, err := x509.ParsePKIXPublicKey(resp.PublicKey)

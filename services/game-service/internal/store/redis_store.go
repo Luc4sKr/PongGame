@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	"github.com/ponggame/game-service/internal/config"
+	"github.com/ponggame/game-service/internal/telemetry"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -51,25 +52,27 @@ type PaddlesPair struct {
 }
 
 type MatchState struct {
-	MatchID       string      `json:"matchId"`
-	CorrelationID string      `json:"correlationId"`
-	Status        string      `json:"status"` // WAITING_FOR_PLAYERS, PLAYING, FINISHED, CANCELLED
-	Tick          int64       `json:"tick"`
-	WinningScore  int         `json:"winningScore"`
-	Board         BoardSpec   `json:"board"`
-	Ball          BallState   `json:"ball"`
-	Paddles       PaddlesPair `json:"paddles"`
-	WinnerID      *string     `json:"winnerId,omitempty"`
-	FinishReason  string      `json:"finishReason,omitempty"`
-	InstanceID    string      `json:"instanceId"`
-	StartedAt     int64       `json:"startedAt,omitempty"`
-	UpdatedAt     int64       `json:"updatedAt"`
+	TraceContext  map[string]string `json:"traceContext,omitempty"`
+	MatchID       string            `json:"matchId"`
+	CorrelationID string            `json:"correlationId"`
+	Status        string            `json:"status"` // WAITING_FOR_PLAYERS, PLAYING, FINISHED, CANCELLED
+	Tick          int64             `json:"tick"`
+	WinningScore  int               `json:"winningScore"`
+	Board         BoardSpec         `json:"board"`
+	Ball          BallState         `json:"ball"`
+	Paddles       PaddlesPair       `json:"paddles"`
+	WinnerID      *string           `json:"winnerId,omitempty"`
+	FinishReason  string            `json:"finishReason,omitempty"`
+	InstanceID    string            `json:"instanceId"`
+	StartedAt     int64             `json:"startedAt,omitempty"`
+	UpdatedAt     int64             `json:"updatedAt"`
 }
 
 type OutboxItem struct {
-	RoutingKey string `json:"routingKey"`
-	Body       string `json:"body"`
-	raw        string
+	TraceContext map[string]string `json:"traceContext,omitempty"`
+	RoutingKey   string            `json:"routingKey"`
+	Body         string            `json:"body"`
+	raw          string
 }
 
 type RedisStore struct {
@@ -113,9 +116,12 @@ func NewRedisStore(ctx context.Context, cfg config.Config) (*RedisStore, error) 
 		WriteTimeout: 5 * time.Second,
 		PoolSize:     32,
 	})
+	registerRedisMetrics(client)
 
 	for attempt := 1; attempt <= 20; attempt++ {
 		if err := client.Ping(ctx).Err(); err == nil {
+			telemetry.Gauge("pong.game.outbox.pending", func(ctx context.Context) (int64, error) { return client.LLen(ctx, OutboxListKey).Result() })
+			telemetry.Gauge("pong.game.matches.active", func(ctx context.Context) (int64, error) { return client.SCard(ctx, ActiveMatchesSetKey).Result() })
 			return &RedisStore{client: client, instanceID: cfg.InstanceID}, nil
 		} else {
 			log.Printf("[redis] waiting for Redis %s:%d (attempt %d/20): %v", host, port, attempt, err)
@@ -152,7 +158,7 @@ func discoverElastiCache(ctx context.Context, cfg config.Config) (string, int) {
 
 	for attempt := 1; attempt <= 20; attempt++ {
 		out, err := ec.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{
-			CacheClusterId:   aws.String(cfg.ElastiCacheClusterID),
+			CacheClusterId:    aws.String(cfg.ElastiCacheClusterID),
 			ShowCacheNodeInfo: aws.Bool(true),
 		})
 		if err == nil && len(out.CacheClusters) > 0 && len(out.CacheClusters[0].CacheNodes) > 0 {
@@ -179,17 +185,42 @@ func (s *RedisStore) Close() error {
 	return s.client.Close()
 }
 
+// DemoDependency is scoped to a test player and expires in Redis. It is only
+// consulted by the broker when using a local AWS emulator.
+type DemoDependency struct {
+	DelayMs int  `json:"delayMs"`
+	Fail    bool `json:"fail"`
+}
+
+func (s *RedisStore) DemoDependency(ctx context.Context, playerID string) (*DemoDependency, error) {
+	raw, err := s.client.Get(ctx, "demo:dependency:"+playerID).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var fault DemoDependency
+	if err := json.Unmarshal(raw, &fault); err != nil {
+		return nil, err
+	}
+	if fault.DelayMs < 0 || fault.DelayMs > 20000 {
+		return nil, fmt.Errorf("demo delay must be between 0 and 20000ms")
+	}
+	return &fault, nil
+}
+
 func (s *RedisStore) Ping(ctx context.Context) error {
 	return s.client.Ping(ctx).Err()
 }
 
-func matchKey(matchID string) string       { return "game:match:" + matchID }
-func inputsKey(matchID string) string      { return "game:match:" + matchID + ":inputs" }
-func ownerKey(matchID string) string       { return "game:match:" + matchID + ":owner" }
-func StateChannel(matchID string) string   { return "game:match:" + matchID + ":state" }
-func msgDoneKey(msgID string) string       { return "game:msg:done:" + msgID }
-func msgClaimKey(msgID string) string      { return "game:msg:claim:" + msgID }
-func finishedGuardKey(id string) string    { return "game:finished_emitted:" + id }
+func matchKey(matchID string) string     { return "game:match:" + matchID }
+func inputsKey(matchID string) string    { return "game:match:" + matchID + ":inputs" }
+func ownerKey(matchID string) string     { return "game:match:" + matchID + ":owner" }
+func StateChannel(matchID string) string { return "game:match:" + matchID + ":state" }
+func msgDoneKey(msgID string) string     { return "game:msg:done:" + msgID }
+func msgClaimKey(msgID string) string    { return "game:msg:claim:" + msgID }
+func finishedGuardKey(id string) string  { return "game:finished_emitted:" + id }
 
 // IsMessageDone checks permanent idempotency marker.
 func (s *RedisStore) IsMessageDone(ctx context.Context, messageID string) (bool, error) {
@@ -341,7 +372,7 @@ func (s *RedisStore) EnqueueOutbox(ctx context.Context, routingKey string, envel
 	if err != nil {
 		return err
 	}
-	item, err := json.Marshal(OutboxItem{RoutingKey: routingKey, Body: string(body)})
+	item, err := json.Marshal(OutboxItem{RoutingKey: routingKey, Body: string(body), TraceContext: telemetry.Capture(ctx)})
 	if err != nil {
 		return err
 	}

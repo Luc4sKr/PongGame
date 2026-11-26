@@ -2,6 +2,8 @@ package com.ponggame.player.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ponggame.player.domain.Player;
+import com.ponggame.player.observability.Telemetry;
+import io.opentelemetry.api.trace.Span;
 import com.ponggame.player.domain.PlayerMatch;
 import com.ponggame.player.messaging.EventEnvelope;
 import com.ponggame.player.messaging.MatchFinishedPayload;
@@ -108,6 +110,8 @@ public class PlayerStatsService {
                 envelope.type(),
                 envelope.correlationId());
         if (inserted == 0) {
+            Span.current().setAttribute("pong.message.duplicate", true);
+            Telemetry.count("pong.messages.duplicates", "ignored");
             log.info("Ignoring duplicate messageId={} for matchId={} (already processed)",
                     envelope.messageId(), payload.matchId());
             return false;

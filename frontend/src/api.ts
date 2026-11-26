@@ -9,6 +9,7 @@ import type {
 } from './types';
 
 const STORAGE_KEY = 'ponggame.session.tokens';
+import { tracedFetch } from './telemetry';
 
 export class ApiError extends Error {
   status: number;
@@ -52,7 +53,7 @@ async function parseErrorMessage(resp: Response): Promise<string> {
 }
 
 async function rawFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, {
+  const resp = await tracedFetch(path, {
     ...init,
     headers: {
       Accept: 'application/json',

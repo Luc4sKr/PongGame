@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ponggame/game-service/internal/store"
+	"github.com/ponggame/game-service/internal/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -159,6 +161,11 @@ func (m *Manager) EnsureSimulationRunning(parentCtx context.Context, matchID str
 	m.mu.Unlock()
 
 	log.Printf("[engine:%s] acquired simulation lease for match %s", m.instanceID, matchID)
+	if state, err := m.store.GetMatch(parentCtx, matchID); err == nil {
+		ctx, span := telemetry.Start(telemetry.Restore(parentCtx, state.TraceContext), "game.lease.acquire", attribute.String("pong.match.id", matchID))
+		telemetry.Event(ctx, "Simulation lease acquired", "pong.match.id", matchID, "service.instance.id", m.instanceID)
+		span.End()
+	}
 	go m.runLoop(simCtx, matchID)
 }
 
@@ -299,6 +306,10 @@ func (m *Manager) publishFrame(ctx context.Context, state *store.MatchState) boo
 
 func (m *Manager) finishMatch(ctx context.Context, state *store.MatchState, winnerID *string, reason string) {
 	state.Status = "FINISHED"
+	ctx, span := telemetry.Start(telemetry.Restore(ctx, state.TraceContext), "game.match.finish", attribute.String("pong.match.id", state.MatchID), attribute.String("pong.finish.reason", reason))
+	defer span.End()
+	telemetry.Event(ctx, "Match finished", "pong.match.id", state.MatchID, "pong.finish.reason", reason)
+	telemetry.Count(ctx, "pong.game.matches.finished", reason)
 	state.WinnerID = winnerID
 	state.FinishReason = reason
 	state.InstanceID = m.instanceID

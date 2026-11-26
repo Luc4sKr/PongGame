@@ -2,6 +2,7 @@ package com.ponggame.player.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ponggame.player.service.PlayerStatsService;
+import com.ponggame.player.observability.Telemetry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
@@ -28,12 +29,25 @@ public class MatchFinishedConsumer {
     public void onMatchFinished(Message rawMessage) throws Exception {
         String body = new String(rawMessage.getBody(), StandardCharsets.UTF_8);
         EventEnvelope envelope = objectMapper.readValue(body, EventEnvelope.class);
+        if (envelope != null) {
+            Telemetry.annotate(envelope.payload() == null ? null : envelope.payload().path("matchId").asText(null),
+                    String.valueOf(envelope.messageId()), String.valueOf(envelope.correlationId()));
+        }
 
         validateEnvelope(envelope);
         MatchFinishedPayload payload = objectMapper.treeToValue(envelope.payload(), MatchFinishedPayload.class);
         validatePayload(envelope.messageId(), payload);
 
-        playerStatsService.recordMatchFinished(envelope, payload);
+        try (var operation = Telemetry.start("player.match.record")) {
+            Telemetry.annotate(payload.matchId().toString(), envelope.messageId().toString(), envelope.correlationId().toString());
+            try {
+                boolean recorded = playerStatsService.recordMatchFinished(envelope, payload);
+                operation.span.setAttribute("pong.match.recorded", recorded);
+            } catch (RuntimeException error) {
+                operation.error(error);
+                throw error;
+            }
+        }
     }
 
     private void validateEnvelope(EventEnvelope envelope) {
@@ -61,6 +75,7 @@ public class MatchFinishedConsumer {
                 || payload.player2Score() == null || payload.player2Score() < 0
                 || payload.reason() == null || payload.reason().isBlank()) {
             log.error("Rejecting invalid match.finished payload messageId={} (will route to DLQ after retries)", messageId);
+            Telemetry.count("pong.messages.rejected", "invalid_payload");
             throw new IllegalArgumentException("Invalid match.finished payload");
         }
     }
